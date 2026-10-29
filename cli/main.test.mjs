@@ -432,3 +432,17 @@ test(
     }
   },
 );
+
+test("--log writes Unity's log where it says", async () => {
+  const { root, project, out, calls, io, cleanup } = setup();
+  try {
+    const log = path.join(root, "Logs here", "Unity.log");
+    await main(
+      ["--project", project, "--prefab", "A", "--out", out, "--log", log],
+      io,
+    );
+    assert.equal(calls[0].args[calls[0].args.indexOf("-logFile") + 1], log);
+  } finally {
+    cleanup();
+  }
+});

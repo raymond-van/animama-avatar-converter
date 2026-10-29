@@ -145,9 +145,11 @@ export async function main(argv, io = {}) {
     throw new Error(`${out} exists; choose a new --out.`);
   if (out && !(await exists(path.dirname(out))))
     throw new Error(`The folder ${path.dirname(out)} does not exist.`);
-  const unityLog = out
-    ? `${out.slice(0, -".vrm".length)}.export.log`
-    : path.join(project, "Logs", "animama-validate.log");
+  const unityLog = options.log
+    ? path.resolve(options.log)
+    : out
+      ? `${out.slice(0, -".vrm".length)}.export.log`
+      : path.join(project, "Logs", "animama-validate.log");
   await mkdir(path.dirname(unityLog), { recursive: true });
 
   const open = isOpen(project);

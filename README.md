@@ -124,6 +124,7 @@ written beside the output as `<Avatar>.export.log` (with `--validate` and no
 | `--keep-pose` | Export the modelled pose instead of the T-pose |
 | `--validate` | Validate only; `--out` is optional |
 | `--unity <editor>` | The Unity editor to run; by default the project's version from Unity Hub, or `ANIMAMA_UNITY_EDITOR` |
+| `--log <file>` | Where to write Unity's log instead |
 
 It exits with 0 when the VRM was written, 2 when Mochiya cannot convert the
 prefab and 1 otherwise. It refuses while the project is open in Unity, and stops

@@ -7,12 +7,14 @@ export const USAGE = [
   "Usage:",
   "  animama-avatar-export --project <unity-project> --prefab <Assets/…/Avatar.prefab> --out <Avatar>.vrm",
   "    [--name <name>] [--version <version>] [--author <author>] [--copyright <credit>]",
-  "    [--keep-pose] [--validate] [--unity <editor>] [--package <package-spec>]",
+  "    [--keep-pose] [--validate] [--unity <editor>] [--log <file>] [--package <package-spec>]",
   "",
   "  --validate     run Mochiya's validation only; --out is optional",
   "  --keep-pose    export the modelled pose instead of the T-pose VRM 1.0 expects",
   "  --unity        the Unity editor to run (default: the project's version from Unity Hub,",
   "                 or ANIMAMA_UNITY_EDITOR)",
+  "  --log          where to write Unity's log (default: beside --out as <Avatar>.export.log,",
+  "                 or the project's Logs/animama-validate.log)",
   "  --package      the com.animama.avatar-export entry to add to Packages/manifest.json",
   "                 (default: this command's release; for testing unreleased versions)",
 ].join("\n");
@@ -27,6 +29,7 @@ const VALUE_OPTIONS = [
   "author",
   "copyright",
   "package",
+  "log",
 ];
 const FLAG_OPTIONS = ["keep-pose", "validate", "help"];
 
