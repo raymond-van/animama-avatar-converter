@@ -1,0 +1,29 @@
+{
+  "name": "Animama.AvatarExport.Editor.Tests",
+  "rootNamespace": "Animama.AvatarExport.Tests",
+  "references": [
+    "Animama.AvatarExport.Editor",
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner"
+  ],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS", "ANIMAMA_HAS_MOCHIYA", "ANIMAMA_HAS_VRM10"],
+  "versionDefines": [
+    {
+      "name": "org.mochiya.avatar-tools",
+      "expression": "0.1.4",
+      "define": "ANIMAMA_HAS_MOCHIYA"
+    },
+    {
+      "name": "com.vrmc.vrm",
+      "expression": "[0.131.2]",
+      "define": "ANIMAMA_HAS_VRM10"
+    }
+  ],
+  "noEngineReferences": false
+}
