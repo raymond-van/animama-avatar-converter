@@ -118,7 +118,8 @@ same export as the window, and prints the validation report. Unity's log is
 written beside the output as `<Avatar>.export.log` (with `--validate` and no
 `--out`, to the project's `Logs/animama-validate.log`; `--log` chooses another
 file). If the package's export code did not compile, a second Unity run checks
-the requirements and logs to `<Avatar>.export.requirements.log`.
+the requirements and logs beside that log, with `.requirements` added before
+`.log`.
 
 | Option | Meaning |
 | --- | --- |
