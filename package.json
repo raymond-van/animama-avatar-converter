@@ -1,0 +1,22 @@
+{
+  "name": "animama-avatar-export",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Export a VRChat Avatar you own to a VRM file for Animama from the command line, through the com.animama.avatar-export Unity package.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "animama-avatar-export": "cli/main.mjs"
+  },
+  "files": [
+    "cli/*.mjs",
+    "!cli/*.test.mjs"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"cli/*.test.mjs\" \"scripts/*.test.mjs\"",
+    "check": "node scripts/check.mjs"
+  }
+}
