@@ -109,7 +109,8 @@ export function planManifest(text, packageSpec, embedded = new Set()) {
 
 /**
  * Whether Unity has the project open: it holds Temp/UnityLockfile while it
- * runs (a leftover file from a crash is not held).
+ * runs (a leftover file from a crash is not held). Null when this cannot be
+ * told: `lsof` is missing.
  */
 export function projectIsOpen(project, platform = process.platform) {
   const lockfile = path.join(project, "Temp", "UnityLockfile");
@@ -125,5 +126,6 @@ export function projectIsOpen(project, platform = process.platform) {
     }
   }
   const lsof = spawnSync("lsof", ["-t", lockfile], { encoding: "utf8" });
+  if (lsof.error) return null;
   return lsof.status === 0 && lsof.stdout.trim().length > 0;
 }

@@ -150,8 +150,13 @@ export async function main(argv, io = {}) {
     : path.join(project, "Logs", "animama-validate.log");
   await mkdir(path.dirname(unityLog), { recursive: true });
 
-  if (isOpen(project))
+  const open = isOpen(project);
+  if (open)
     throw new Error("The project is open in Unity. Close it, then run again.");
+  if (open === null)
+    log(
+      "Could not check whether Unity has the project open (lsof was not found); make sure it is closed.",
+    );
   const editor = await resolveUnityEditor(project, options.unity, env);
   const { version } = JSON.parse(
     await readFile(path.join(cliRoot, "package.json"), "utf8"),

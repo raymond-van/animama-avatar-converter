@@ -104,12 +104,9 @@ test("a project without a Unity lockfile, or with one nobody holds, is not open"
     assert.equal(projectIsOpen(project), false);
     mkdirSync(path.join(project, "Temp"));
     writeFileSync(path.join(project, "Temp", "UnityLockfile"), "");
-    assert.equal(
-      projectIsOpen(project),
-      false,
-      "a leftover lockfile from a crash",
-    );
-    if (process.platform !== "win32") {
+    // A leftover lockfile from a crash is not held (null where lsof is missing).
+    assert.notEqual(projectIsOpen(project), true);
+    if (process.platform !== "win32" && projectIsOpen(project) !== null) {
       // lsof reports any process holding the file, as Unity does while it runs.
       const held = openSync(path.join(project, "Temp", "UnityLockfile"), "r");
       try {

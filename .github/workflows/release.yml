@@ -1,0 +1,104 @@
+name: Release
+
+# A version tag (v0.1.0) on main publishes the Unity package zip as a GitHub
+# release and rebuilds the VPM listing on GitHub Pages from the zips of every
+# release. Each job can be re-run on its own: an existing release is kept as
+# it is, and the listing is rebuilt from the published zips, so a version's
+# hash never changes. Published tags are never moved or deleted; a fix ships
+# as a new patch version. Push one tag at a time.
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+      - name: Require the tag to be on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - run: node scripts/check.mjs --tag "$GITHUB_REF_NAME"
+      - run: node scripts/pack.mjs --out dist
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: package-zip
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: package-zip
+          path: dist
+      - name: Create the GitHub release unless it exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME exists; keeping its zip."
+          else
+            prerelease=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" dist/*.zip "${prerelease[@]}" \
+              --title "$GITHUB_REF_NAME" \
+              --notes "See CHANGELOG.md in Packages/com.animama.avatar-export."
+          fi
+
+  pages:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+      - name: Download every release's zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p zips
+          for tag in $(gh release list --exclude-drafts --limit 1000 --json tagName --jq '.[].tagName'); do
+            gh release download "$tag" --pattern 'com.animama.avatar-export-*.zip' --dir zips
+          done
+      - run: node scripts/build-listing.mjs --repository "$GITHUB_REPOSITORY" --zips zips --out site --require "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

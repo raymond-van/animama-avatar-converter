@@ -253,14 +253,10 @@ test("a folder that is not a Unity project is refused", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "animama-cli-"));
   try {
     await assert.rejects(
-      main([
-        "--project",
-        root,
-        "--prefab",
-        "A",
-        "--out",
-        path.join(root, "A.vrm"),
-      ]),
+      main(
+        ["--project", root, "--prefab", "A", "--out", path.join(root, "A.vrm")],
+        { log: () => {} },
+      ),
       /not a Unity project/,
     );
   } finally {
