@@ -65,6 +65,15 @@ namespace Animama.AvatarExport
 
         public Exception Exception { get; internal set; }
 
+        /// <summary>Mochiya's validation report ("Error:", "Unsupported:" and "Warning:" lines), once validation ran.</summary>
+        public string ValidationReport { get; internal set; }
+
+        /// <summary>
+        /// Mochiya's export report, once the export ran: the validation lines plus
+        /// those only the conversion finds, such as omitted colliders.
+        /// </summary>
+        public string ExportReport { get; internal set; }
+
         /// <summary>
         /// Progress lines in order: stripped objects, posing, Mochiya's detection,
         /// validation and export reports, and the written file.

@@ -1,0 +1,10 @@
+{
+  "name": "Animama.AvatarExport.Bootstrap",
+  "rootNamespace": "Animama.AvatarExport",
+  "references": [],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false,
+  "noEngineReferences": false
+}

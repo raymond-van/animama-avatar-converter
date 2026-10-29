@@ -73,6 +73,7 @@ namespace Animama.AvatarExport
 
                         result.Add("Detect: " + converter.Detect(root));
                         var canConvert = converter.Validate(root, out var report);
+                        result.ValidationReport = report;
                         result.Add("Validate:\n" + report);
                         if (!canConvert)
                         {
@@ -86,7 +87,8 @@ namespace Animama.AvatarExport
                         }
 
                         partialPath = PartialPath(outPath);
-                        result.Add("Export report:\n" + converter.Export(root, partialPath));
+                        result.ExportReport = converter.Export(root, partialPath);
+                        result.Add("Export report:\n" + result.ExportReport);
                         MoveIntoPlace(partialPath, outPath);
                         partialPath = null;
                         result.OutputPath = outPath;
