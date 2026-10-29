@@ -17,7 +17,7 @@ it.
 - Unity 2022.3, the editor VRChat uses, installed through Unity Hub.
 - [Git](https://git-scm.com/downloads), which Unity uses to install the
   converter's dependencies. Restart Unity Hub after installing it.
-- lilToon 2.3.4 or later, if the Avatar uses lilToon. Avatars that ship an older
+- lilToon 2.3.4 or later within 2.x, if the Avatar uses lilToon. Avatars that ship an older
   lilToon (for example 1.4.0) need it replaced first: delete `Assets/lilToon`
   and add lilToon from its repository,
   `https://lilxyzw.github.io/vpm-repos/vpm.json`. Take screenshots of the Avatar
@@ -96,7 +96,7 @@ tessellation shader variants.
 - Blendshapes the Avatar keeps at a non-zero weight in Unity are exported at
   zero, so a part they adjust can sit differently.
 - Avatars that need a Modular Avatar build are not supported yet; the window
-  says so.
+  and the command say so.
 
 ## Use it in Animama
 
@@ -116,7 +116,9 @@ The command adds the package and its dependencies to the project's
 `Packages/manifest.json` if they are missing, runs Unity in batch mode with the
 same export as the window, and prints the validation report. Unity's log is
 written beside the output as `<Avatar>.export.log` (with `--validate` and no
-`--out`, to the project's `Logs/animama-validate.log`).
+`--out`, to the project's `Logs/animama-validate.log`; `--log` chooses another
+file). If the package's export code did not compile, a second Unity run checks
+the requirements and logs to `<Avatar>.export.requirements.log`.
 
 | Option | Meaning |
 | --- | --- |
@@ -126,8 +128,9 @@ written beside the output as `<Avatar>.export.log` (with `--validate` and no
 | `--unity <editor>` | The Unity editor to run; by default the project's version from Unity Hub, or `ANIMAMA_UNITY_EDITOR` |
 | `--log <file>` | Where to write Unity's log instead |
 
-It exits with 0 when the VRM was written, 2 when Mochiya cannot convert the
-prefab and 1 otherwise. It refuses while the project is open in Unity, and stops
+It exits with 0 when the VRM was written (or `--validate` passed), 2 when
+Mochiya cannot convert the prefab or it needs a Modular Avatar build, and 1
+otherwise, including a project that misses a requirement. It refuses while the project is open in Unity, and stops
 if `Packages/manifest.json` pins other versions of the dependencies.
 
 Unity must run with a graphics device: the exporter reads textures back through
