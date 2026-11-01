@@ -9,7 +9,10 @@ It runs on your computer and uploads nothing.
 ## 1. Prerequisites
 
 - The Avatar's VRChat project, set up as its author describes (Unity 2022.3).
-- [Git](https://git-scm.com/downloads).
+  Create it with [VRChat Creator Companion](https://vcc.docs.vrchat.com) on
+  Windows or [ALCOM](https://vrc-get.anatawa12.com/alcom/) on Mac.
+- [Git](https://git-scm.com/downloads). On Mac, `xcode-select --install`
+  installs it. On Windows, restart Unity Hub after installing.
 - lilToon 2.3.4 or later (2.x), if the Avatar uses lilToon.
 - To convert from a terminal: [Node.js](https://nodejs.org) 22 or later.
 
