@@ -13,25 +13,19 @@ It runs on your computer and uploads nothing.
 - lilToon 2.3.4 or later (2.x), if the Avatar uses lilToon.
 - To convert from a terminal: [Node.js](https://nodejs.org) 22 or later.
 
-## 2. Setup
-
-1. In VRChat Creator Companion or ALCOM, add this repository:
-   `https://raymond-van.github.io/animama-avatar-converter/index.json`
-2. Add **Animama Avatar Converter** to the Avatar's project.
-
-Converting from a terminal? You can skip this step: the command adds the
-converter to the project itself.
-
-## 3. Convert
+## 2. Convert
 
 <details>
 <summary><b>In Unity</b></summary>
 
-1. Open the Avatar's project in Unity.
-2. When asked, click **Install dependencies** and wait for Unity to finish.
-3. Choose **Animama > Export for Animama…**.
-4. Pick the Avatar's prefab and where to save the VRM.
-5. Click **Export**.
+1. In VRChat Creator Companion or ALCOM, add this repository:
+   `https://raymond-van.github.io/animama-avatar-converter/index.json`
+2. Add **Animama Avatar Converter** to the Avatar's project.
+3. Open the project in Unity.
+4. When asked, click **Install dependencies** and wait for Unity to finish.
+5. Choose **Animama > Export for Animama…**.
+6. Pick the Avatar's prefab and where to save the VRM.
+7. Click **Export**.
 
 </details>
 
