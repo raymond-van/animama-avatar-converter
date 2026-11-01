@@ -6,45 +6,58 @@ It runs on your computer and uploads nothing.
 > Convert only an Avatar whose licence allows it, and share the VRM only if the
 > licence allows that too.
 
-**[In Unity](#in-unity)** · **[From a terminal](#from-a-terminal)**
-
-## You need
+## 1. Prerequisites
 
 - The Avatar's VRChat project, set up as its author describes (Unity 2022.3).
 - [Git](https://git-scm.com/downloads).
 - lilToon 2.3.4 or later (2.x), if the Avatar uses lilToon.
+- To convert from a terminal: [Node.js](https://nodejs.org) 22 or later.
 
-## In Unity
+## 2. Setup
 
-1. In VRChat Creator Companion or ALCOM, add this repository and then add
-   **Animama Avatar Converter** to the project:
+1. In VRChat Creator Companion or ALCOM, add this repository:
    `https://raymond-van.github.io/animama-avatar-converter/index.json`
-2. In Unity, choose **Install dependencies** when asked.
-3. Open **Animama > Export for Animama…**, pick the Avatar's prefab, choose
-   where to save, and click **Export**.
+2. Add **Animama Avatar Converter** to the Avatar's project.
 
-## From a terminal
+Converting from a terminal? You can skip this step: the command adds the
+converter to the project itself.
 
-With [Node.js](https://nodejs.org) 22 or later, in the Avatar's project folder:
+## 3. Convert
 
-```bash
-npx animama-avatar-converter
-```
+<details>
+<summary><b>In Unity</b></summary>
 
-It adds the converter and its dependencies to the project's
-`Packages/manifest.json` if needed, then writes `<Avatar>.vrm` in that folder.
-If the project has several Avatar prefabs, it lists them; pass the one you
-want:
+1. Open the Avatar's project in Unity.
+2. When asked, click **Install dependencies** and wait for Unity to finish.
+3. Choose **Animama > Export for Animama…**.
+4. Pick the Avatar's prefab and where to save the VRM.
+5. Click **Export**.
 
-```bash
-npx animama-avatar-converter "Avatar No Jacket"
-```
+</details>
 
-See `npx animama-avatar-converter --help` for options such as `--out`.
+<details>
+<summary><b>From a terminal</b></summary>
 
-## Then
+1. Open a terminal in the Avatar's project folder.
+2. Run:
 
-In Animama, choose **Upload VRM** in Create Anima.
+   ```bash
+   npx animama-avatar-converter
+   ```
+
+3. If the project has several Avatars, the command lists them. Run it again
+   with the one you want:
+
+   ```bash
+   npx animama-avatar-converter "Avatar No Jacket"
+   ```
+
+The VRM is saved as `<Avatar>.vrm` in the project folder. Run
+`npx animama-avatar-converter --help` for options such as `--out`.
+
+</details>
+
+Then, in Animama, choose **Upload VRM** in Create Anima.
 
 ## Good to know
 
