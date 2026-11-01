@@ -1,0 +1,10 @@
+{
+  "name": "Animama.AvatarConverter.Bootstrap",
+  "rootNamespace": "Animama.AvatarConverter",
+  "references": [],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": false,
+  "noEngineReferences": false
+}

@@ -7,8 +7,8 @@ import path from "node:path";
  * back through the GPU and writes flat grey placeholders without one.
  */
 
-const BATCH_EXPORT = "Animama.AvatarExport.BatchExport";
-const BATCH_REQUIREMENTS = "Animama.AvatarExport.BatchRequirements.Check";
+const BATCH_EXPORT = "Animama.AvatarConverter.BatchExport";
+const BATCH_REQUIREMENTS = "Animama.AvatarConverter.BatchRequirements.Check";
 
 /** Batch exit code: Mochiya cannot convert the prefab, or it needs Modular Avatar. */
 export const CANNOT_CONVERT = 2;

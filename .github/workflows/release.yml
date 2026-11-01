@@ -67,7 +67,7 @@ jobs:
             if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
             gh release create "$GITHUB_REF_NAME" dist/*.zip "${prerelease[@]}" \
               --title "$GITHUB_REF_NAME" \
-              --notes "See CHANGELOG.md in Packages/com.animama.avatar-export."
+              --notes "See CHANGELOG.md in Packages/com.animama.avatar-converter."
           fi
 
   pages:
@@ -94,7 +94,7 @@ jobs:
         run: |
           mkdir -p zips
           for tag in $(gh release list --exclude-drafts --limit 1000 --json tagName --jq '.[].tagName'); do
-            gh release download "$tag" --pattern 'com.animama.avatar-export-*.zip' --dir zips
+            gh release download "$tag" --pattern 'com.animama.avatar-converter-*.zip' --dir zips
           done
       - run: node scripts/build-listing.mjs --repository "$GITHUB_REPOSITORY" --zips zips --out site --require "${GITHUB_REF_NAME#v}"
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

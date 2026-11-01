@@ -36,6 +36,12 @@ function setup({
     path.join(project, "Packages", "manifest.json"),
     manifest ?? '{\n  "dependencies": {}\n}\n',
   );
+  // One Avatar prefab, A, holding the VRChat avatar descriptor.
+  mkdirSync(path.join(project, "Assets"));
+  writeFileSync(
+    path.join(project, "Assets", "A.prefab"),
+    "--- !u!114 &1\nMonoBehaviour:\n  m_Script: {fileID: 542108242, guid: 67cc4cb7839cd3741b63733d5adf0442, type: 3}\n",
+  );
   const out = path.join(root, "Out", "Avatar.vrm");
   mkdirSync(path.dirname(out));
   const editor = path.join(root, "Unity");
@@ -46,6 +52,7 @@ function setup({
     log: (line) => output.push(line),
     error: (line) => output.push(`error: ${line}`),
     env: { ANIMAMA_UNITY_EDITOR: editor },
+    cwd: root,
     projectIsOpen: () => false,
     runUnity: async (editor, args) => {
       calls.push({ editor, args });
@@ -404,13 +411,15 @@ test(
         ].join("\n"),
       );
       chmodSync(fake, 0o755);
+      mkdirSync(path.join(project, "Assets", "My Avatar"));
+      writeFileSync(path.join(project, "Assets", "My Avatar", "B.prefab"), "");
       const output = [];
       const code = await main(
         [
           "--project",
           project,
           "--prefab",
-          "Assets/My Avatar/A.prefab",
+          "Assets/My Avatar/B.prefab",
           "--out",
           out,
           "--unity",
@@ -425,7 +434,7 @@ test(
       );
 
       assert.equal(code, 0);
-      assert.ok(output.includes("[Animama] prefab Assets/My Avatar/A.prefab"));
+      assert.ok(output.includes("[Animama] prefab Assets/My Avatar/B.prefab"));
       assert.equal(readFileSync(out, "utf8"), "vrm");
     } finally {
       cleanup();
@@ -442,6 +451,40 @@ test("--log writes Unity's log where it says", async () => {
       io,
     );
     assert.equal(calls[0].args[calls[0].args.indexOf("-logFile") + 1], log);
+  } finally {
+    cleanup();
+  }
+});
+
+test("in the project's folder, with no options, exports its only Avatar beside it", async () => {
+  const { project, calls, io, cleanup } = setup();
+  try {
+    const code = await main([], { ...io, cwd: project });
+
+    assert.equal(code, 0);
+    const args = calls[0].args;
+    assert.equal(args[args.indexOf("-projectPath") + 1], project);
+    assert.equal(args[args.indexOf("-animamaPrefab") + 1], "Assets/A.prefab");
+    assert.equal(
+      args[args.indexOf("-animamaOut") + 1],
+      path.join(project, "A.vrm"),
+    );
+    assert.equal(
+      args[args.indexOf("-logFile") + 1],
+      path.join(project, "A.export.log"),
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("outside a Unity project, the command says where to run it", async () => {
+  const { root, io, cleanup } = setup();
+  try {
+    await assert.rejects(
+      main([], { ...io, cwd: root }),
+      /Run this in your Unity project's folder/,
+    );
   } finally {
     cleanup();
   }

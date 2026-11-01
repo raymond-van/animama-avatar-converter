@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, USAGE } from "./args.mjs";
+import { findPrefabs, resolvePrefab } from "./prefabs.mjs";
 import {
   embeddedPackages,
   planManifest,
@@ -26,18 +27,18 @@ import {
 
 /**
  * Export a VRChat Avatar prefab to VRM for Animama without opening the Unity
- * editor's window:
+ * editor's window. Run in the Unity project's folder:
  *
- *   animama-avatar-export --project <unity-project> --prefab <Assets/…/Avatar.prefab> \
- *     --out <Avatar>.vrm [--name …] [--version …] [--author …] [--copyright …] \
- *     [--keep-pose] [--validate] [--unity <editor>] [--package <spec>]
+ *   npx animama-avatar-converter [<Avatar prefab name or path>] [--out <file.vrm>] …
  *
- * It adds the com.animama.avatar-export package and its dependencies to the
+ * With no prefab it uses the project's only Avatar prefab, or lists them. It
+ * adds the com.animama.avatar-converter package and its dependencies to the
  * project's Packages/manifest.json if they are missing, refuses while the
- * project is open in Unity, then runs the package's batch export. The Unity log
- * goes beside the output as `<Avatar>.export.log`. Exit codes: 0 when the VRM
- * was written (or validation passed), 2 when Mochiya cannot convert the
- * prefab (or it needs Modular Avatar), 1 otherwise. Never overwrites a file; nothing is uploaded.
+ * project is open in Unity, then runs the package's batch export. The VRM
+ * defaults to ./<prefab name>.vrm, with Unity's log beside it as
+ * `<name>.export.log`. Exit codes: 0 when the VRM was written (or validation
+ * passed), 2 when Mochiya cannot convert the prefab (or it needs Modular
+ * Avatar), 1 otherwise. Never overwrites a file; nothing is uploaded.
  */
 
 const cliRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -135,18 +136,29 @@ export async function main(argv, io = {}) {
   log(
     "Convert only an Avatar whose licence allows you to convert it for your own use, and share the VRM only if the licence allows it.",
   );
-  const project = path.resolve(options.project);
+  const cwd = io.cwd ?? process.cwd();
+  const project = path.resolve(cwd, options.project ?? ".");
   if (!(await exists(path.join(project, "ProjectSettings/ProjectVersion.txt"))))
     throw new Error(
-      `${project} is not a Unity project (no ProjectSettings/ProjectVersion.txt).`,
+      options.project
+        ? `${project} is not a Unity project (no ProjectSettings/ProjectVersion.txt).`
+        : "Run this in your Unity project's folder (the one with Assets and ProjectSettings), or pass --project <folder>.",
     );
-  const out = options.out ? path.resolve(options.out) : null;
+  const prefab = resolvePrefab(await findPrefabs(project), options.prefab, {
+    project,
+    cwd,
+  });
+  const out = options.out
+    ? path.resolve(cwd, options.out)
+    : flags.validate
+      ? null
+      : path.resolve(cwd, `${path.basename(prefab, ".prefab")}.vrm`);
   if (out && !flags.validate && (await exists(out)))
     throw new Error(`${out} exists; choose a new --out.`);
   if (out && !(await exists(path.dirname(out))))
     throw new Error(`The folder ${path.dirname(out)} does not exist.`);
   const unityLog = options.log
-    ? path.resolve(options.log)
+    ? path.resolve(cwd, options.log)
     : out
       ? `${out.slice(0, -".vrm".length)}.export.log`
       : path.join(project, "Logs", "animama-validate.log");
@@ -170,13 +182,13 @@ export async function main(argv, io = {}) {
   );
 
   log(
-    `Unity: ${flags.validate ? "validating" : "exporting"} ${options.prefab} (log: ${unityLog})`,
+    `Unity: ${flags.validate ? "validating" : "exporting"} ${prefab} (log: ${unityLog})`,
   );
   const code = await runUnity(
     editor,
     exportArgs({
       project,
-      prefab: options.prefab,
+      prefab,
       out,
       log: unityLog,
       meta: options,

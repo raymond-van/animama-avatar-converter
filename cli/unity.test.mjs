@@ -74,7 +74,7 @@ test("Unity runs the batch export with the GPU and only the arguments given", ()
     "-logFile",
     "/o/A.export.log",
     "-executeMethod",
-    "Animama.AvatarExport.BatchExport.Export",
+    "Animama.AvatarConverter.BatchExport.Export",
     "-animamaPrefab",
     "Assets/A B.prefab",
     "-animamaOut",
@@ -95,11 +95,11 @@ test("Unity runs the batch export with the GPU and only the arguments given", ()
     keepPose: false,
     validate: true,
   });
-  assert.ok(validate.includes("Animama.AvatarExport.BatchExport.Validate"));
+  assert.ok(validate.includes("Animama.AvatarConverter.BatchExport.Validate"));
   assert.ok(!validate.includes("-animamaOut"));
   assert.ok(
     requirementArgs({ project: "/p", log: "/l" }).includes(
-      "Animama.AvatarExport.BatchRequirements.Check",
+      "Animama.AvatarConverter.BatchRequirements.Check",
     ),
   );
 });

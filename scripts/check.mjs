@@ -12,8 +12,7 @@ import {
  * Repository checks that need no Unity, run by CI and before a release:
  *
  * - the command's and the Unity package's versions agree; with --tag they
- *   also match the tag, the README's install lines and a released CHANGELOG
- *   heading;
+ *   also match the tag and a released CHANGELOG heading;
  * - every dependency pin agrees: Requirements.cs's versions and URLs, the
  *   export assemblies' version defines and the command's manifest entries;
  * - the package and the command contain no network or upload code;
@@ -24,13 +23,13 @@ import {
  */
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const packageDir = path.join(root, "Packages", "com.animama.avatar-export");
+const packageDir = path.join(root, "Packages", "com.animama.avatar-converter");
 const problems = [];
 
 const read = (file) => readFileSync(path.join(root, file), "utf8");
 const cliPackage = JSON.parse(read("package.json"));
 const unityPackage = JSON.parse(
-  read("Packages/com.animama.avatar-export/package.json"),
+  read("Packages/com.animama.avatar-converter/package.json"),
 );
 const version = unityPackage.version;
 
@@ -43,16 +42,9 @@ if (tagIndex >= 0) {
   const tag = process.argv[tagIndex + 1] ?? "";
   if (tag !== `v${version}`)
     problems.push(`Tag "${tag}" does not match version ${version}.`);
-  const readmePins = [
-    ...read("README.md").matchAll(/animama-avatar-export[^\s`]*#v([\w.-]+)/g),
-  ].map((match) => match[1]);
-  if (readmePins.length === 0 || readmePins.some((pin) => pin !== version))
-    problems.push(
-      `README.md's install lines pin ${readmePins.join(", ") || "nothing"}, not ${version}.`,
-    );
   const heading = new RegExp(`^## ${version.replace(/\./g, "\\.")}(.*)$`, "m");
   const released = heading.exec(
-    read("Packages/com.animama.avatar-export/CHANGELOG.md"),
+    read("Packages/com.animama.avatar-converter/CHANGELOG.md"),
   );
   if (!released || /unreleased/i.test(released[1]))
     problems.push(`CHANGELOG.md has no released "## ${version}" heading.`);
@@ -72,7 +64,7 @@ if (!unityPackage.author?.name)
   problems.push("The Unity package.json has no author.name.");
 
 const requirements = read(
-  "Packages/com.animama.avatar-export/Editor/Bootstrap/Requirements.cs",
+  "Packages/com.animama.avatar-converter/Editor/Bootstrap/Requirements.cs",
 );
 const constant = (name) =>
   new RegExp(`const string ${name} = "([^"]+)"`).exec(requirements)?.[1];
@@ -114,8 +106,8 @@ pinned(
   `https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM#v${UNIVRM_VERSION}`,
 );
 for (const asmdef of [
-  "Packages/com.animama.avatar-export/Editor/Export/Animama.AvatarExport.Editor.asmdef",
-  "Packages/com.animama.avatar-export/Tests/Editor/Export/Animama.AvatarExport.Editor.Tests.asmdef",
+  "Packages/com.animama.avatar-converter/Editor/Export/Animama.AvatarConverter.Editor.asmdef",
+  "Packages/com.animama.avatar-converter/Tests/Editor/Export/Animama.AvatarConverter.Editor.Tests.asmdef",
 ]) {
   const defines = Object.fromEntries(
     JSON.parse(read(asmdef)).versionDefines.map((define) => [

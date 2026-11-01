@@ -10,7 +10,7 @@ import path from "node:path";
  * repository's checks keep them in step.
  */
 
-export const PACKAGE_NAME = "com.animama.avatar-export";
+export const PACKAGE_NAME = "com.animama.avatar-converter";
 export const UNIVRM_VERSION = "0.131.2";
 export const MOCHIYA_COMMIT = "0826f6e3e453ac1885d6594b831181655c4a1b5c";
 
@@ -22,7 +22,7 @@ export const DEPENDENCIES = {
 
 /** The Git URL of this package at a released version. */
 export function releasedPackageSpec(version) {
-  return `https://github.com/raymond-van/animama-avatar-export.git?path=/Packages/${PACKAGE_NAME}#v${version}`;
+  return `https://github.com/raymond-van/animama-avatar-converter.git?path=/Packages/${PACKAGE_NAME}#v${version}`;
 }
 
 /** UniVRM for VRM 0.x is optional, but must match UniGLTF's version when present. */

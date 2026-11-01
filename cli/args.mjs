@@ -1,22 +1,27 @@
 /**
- * Command-line options for `animama-avatar-export`. Unknown or incomplete
+ * Command-line options for `animama-avatar-converter`. Unknown or incomplete
  * options are errors, not ignored.
  */
 
 export const USAGE = [
-  "Usage:",
-  "  animama-avatar-export --project <unity-project> --prefab <Assets/…/Avatar.prefab> --out <Avatar>.vrm",
-  "    [--name <name>] [--version <version>] [--author <author>] [--copyright <credit>]",
-  "    [--keep-pose] [--validate] [--unity <editor>] [--log <file>] [--package <package-spec>]",
+  "Usage, in your Unity project's folder:",
+  "  npx animama-avatar-converter [<Avatar prefab name or path>] [options]",
   "",
-  "  --validate     run Mochiya's validation only; --out is optional",
-  "  --keep-pose    export the modelled pose instead of the T-pose VRM 1.0 expects",
-  "  --unity        the Unity editor to run (default: the project's version from Unity Hub,",
-  "                 or ANIMAMA_UNITY_EDITOR)",
-  "  --log          where to write Unity's log (default: beside --out as <Avatar>.export.log,",
-  "                 or the project's Logs/animama-validate.log)",
-  "  --package      the com.animama.avatar-export entry to add to Packages/manifest.json",
-  "                 (default: this command's release; for testing unreleased versions)",
+  "With no prefab, the project's only Avatar prefab is used; if it has several,",
+  "they are listed.",
+  "",
+  "Options:",
+  "  --out <file.vrm>        where to write the VRM (default: ./<prefab name>.vrm)",
+  "  --name, --version, --author, --copyright <text>",
+  "                          VRM details (the name defaults to the prefab's)",
+  "  --keep-pose             export the modelled pose instead of the T-pose",
+  "  --validate              only validate; write no VRM",
+  "  --project <folder>      the Unity project (default: the current folder)",
+  "  --unity <editor>        the Unity editor (default: the project's version from",
+  "                          Unity Hub, or ANIMAMA_UNITY_EDITOR)",
+  "  --log <file>            Unity's log (default: beside the VRM as <name>.export.log)",
+  "  --package <spec>        the Unity package entry to install (for testing",
+  "                          unreleased versions)",
 ].join("\n");
 
 const VALUE_OPTIONS = [
@@ -46,6 +51,9 @@ export function parseArgs(argv) {
         throw new Error(`--${name} needs a value.\n\n${USAGE}`);
       options[name] = value;
       index += 1;
+    } else if (!name && options.prefab === undefined) {
+      // The one positional argument is the prefab.
+      options.prefab = argument;
     } else
       throw new Error(
         `${name ? `Unknown option --${name}` : `Unexpected argument ${argument}`}.\n\n${USAGE}`,
@@ -56,16 +64,7 @@ export function parseArgs(argv) {
     keepPose: seen.has("keep-pose"),
     validate: seen.has("validate"),
   };
-  if (!flags.help) {
-    const required = flags.validate
-      ? ["project", "prefab"]
-      : ["project", "prefab", "out"];
-    for (const option of required) {
-      if (!options[option])
-        throw new Error(`--${option} is required.\n\n${USAGE}`);
-    }
-    if (options.out && !options.out.toLowerCase().endsWith(".vrm"))
-      throw new Error(`--out must end in .vrm.\n\n${USAGE}`);
-  }
+  if (options.out && !options.out.toLowerCase().endsWith(".vrm"))
+    throw new Error(`--out must end in .vrm.\n\n${USAGE}`);
   return { options, flags };
 }

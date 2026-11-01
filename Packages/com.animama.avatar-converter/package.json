@@ -1,0 +1,13 @@
+{
+  "name": "com.animama.avatar-converter",
+  "version": "0.1.0",
+  "displayName": "Animama Avatar Converter",
+  "description": "Export a VRChat Avatar to a VRM 1.0 file for Animama through Mochiya Avatar Tools. Runs locally; uploads nothing.",
+  "unity": "2022.3",
+  "license": "MIT",
+  "author": {
+    "name": "Animama",
+    "url": "https://github.com/raymond-van/animama-avatar-converter"
+  },
+  "keywords": ["vrm", "vrchat", "animama", "liltoon"]
+}
