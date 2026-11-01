@@ -1,0 +1,17 @@
+{
+  "name": "Animama.AvatarConverter.Bootstrap.Tests",
+  "rootNamespace": "Animama.AvatarConverter.Tests",
+  "references": [
+    "Animama.AvatarConverter.Bootstrap",
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner"
+  ],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+  "noEngineReferences": false
+}

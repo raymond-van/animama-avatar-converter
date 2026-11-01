@@ -11,7 +11,7 @@ import { PACKAGE_NAME, readZipManifest, sha256 } from "./listing.mjs";
  *
  *   node scripts/pack.mjs --out <dir>
  *
- * Writes <dir>/com.animama.avatar-export-<version>.zip, replacing a zip of the
+ * Writes <dir>/com.animama.avatar-converter-<version>.zip, replacing a zip of the
  * same name, and leaves out dotfiles. Needs the `zip` and `unzip` commands
  * (present on GitHub's Ubuntu runners and macOS).
  */

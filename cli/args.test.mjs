@@ -2,68 +2,44 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseArgs } from "./args.mjs";
 
-test("an export needs a project, a prefab and a .vrm output", () => {
-  const { options, flags } = parseArgs([
-    "--project",
-    "P",
-    "--prefab",
-    "Assets/A.prefab",
-    "--out",
-    "A.vrm",
-    "--keep-pose",
-    "--name",
-    "A",
-  ]);
-  assert.deepEqual(options, {
-    project: "P",
-    prefab: "Assets/A.prefab",
-    out: "A.vrm",
-    name: "A",
+test("the prefab can be the one positional argument, and nothing is required", () => {
+  assert.deepEqual(parseArgs(["Avatar", "--keep-pose"]), {
+    options: { prefab: "Avatar" },
+    flags: { help: false, keepPose: true, validate: false },
   });
-  assert.deepEqual(flags, { help: false, keepPose: true, validate: false });
-  assert.throws(
-    () => parseArgs(["--project", "P", "--prefab", "Assets/A.prefab"]),
-    /--out is required/,
-  );
-  assert.throws(
-    () => parseArgs(["--project", "P", "--prefab", "A", "--out", "A.glb"]),
-    /must end in \.vrm/,
+  assert.deepEqual(parseArgs([]).options, {});
+  assert.deepEqual(
+    parseArgs([
+      "--project",
+      "P",
+      "--prefab",
+      "Assets/A.prefab",
+      "--out",
+      "A.vrm",
+      "--name",
+      "A",
+    ]).options,
+    { project: "P", prefab: "Assets/A.prefab", out: "A.vrm", name: "A" },
   );
 });
 
-test("validation needs no output", () => {
-  const { options, flags } = parseArgs([
-    "--project",
-    "P",
-    "--prefab",
-    "A",
-    "--validate",
-  ]);
-  assert.equal(options.out, undefined);
-  assert.equal(flags.validate, true);
-});
-
-test("unknown, misplaced and incomplete options are errors", () => {
+test("unknown options, a second positional argument and a bad --out are errors", () => {
   assert.throws(
-    () =>
-      parseArgs([
-        "--project",
-        "P",
-        "--prefab",
-        "A",
-        "--out",
-        "A.vrm",
-        "--no-optimize",
-      ]),
+    () => parseArgs(["A", "--no-optimize"]),
     /Unknown option --no-optimize/,
   );
-  assert.throws(() => parseArgs(["P"]), /Unexpected argument P/);
+  assert.throws(() => parseArgs(["A", "B"]), /Unexpected argument B/);
   assert.throws(
-    () => parseArgs(["--project", "--prefab", "A"]),
+    () => parseArgs(["--prefab", "A", "B"]),
+    /Unexpected argument B/,
+  );
+  assert.throws(
+    () => parseArgs(["--project", "--prefab"]),
     /--project needs a value/,
   );
+  assert.throws(() => parseArgs(["A", "--out", "A.glb"]), /must end in \.vrm/);
 });
 
-test("--help needs nothing else", () => {
+test("--help", () => {
   assert.equal(parseArgs(["--help"]).flags.help, true);
 });

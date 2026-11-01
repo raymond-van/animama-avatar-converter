@@ -8,19 +8,22 @@ import {
   releaseZip,
 } from "./listing.mjs";
 
-const manifest = (version, name = "com.animama.avatar-export") => ({
+const manifest = (version, name = "com.animama.avatar-converter") => ({
   name,
   version,
-  displayName: "Animama Avatar Export",
+  displayName: "Animama Avatar Converter",
   unity: "2022.3",
   author: { name: "Animama" },
 });
 
 test("a release zip is downloaded from its tag's release", () => {
-  assert.deepEqual(releaseZip("raymond-van/animama-avatar-export", "0.1.0"), {
-    name: "com.animama.avatar-export-0.1.0.zip",
-    url: "https://github.com/raymond-van/animama-avatar-export/releases/download/v0.1.0/com.animama.avatar-export-0.1.0.zip",
-  });
+  assert.deepEqual(
+    releaseZip("raymond-van/animama-avatar-converter", "0.1.0"),
+    {
+      name: "com.animama.avatar-converter-0.1.0.zip",
+      url: "https://github.com/raymond-van/animama-avatar-converter/releases/download/v0.1.0/com.animama.avatar-converter-0.1.0.zip",
+    },
+  );
 });
 
 test("the listing holds every released version in order, with its zip and hash", () => {
@@ -32,7 +35,7 @@ test("the listing holds every released version in order, with its zip and hash",
 
   assert.equal(listing.url, LISTING.url);
   assert.equal(listing.id, "com.animama.vpm");
-  const versions = listing.packages["com.animama.avatar-export"].versions;
+  const versions = listing.packages["com.animama.avatar-converter"].versions;
   assert.deepEqual(Object.keys(versions), ["0.2.0-rc.1", "0.2.0", "0.10.0"]);
   assert.deepEqual(versions["0.2.0"], {
     ...manifest("0.2.0"),

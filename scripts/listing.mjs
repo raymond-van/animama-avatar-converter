@@ -10,12 +10,12 @@ import { readFileSync } from "node:fs";
  * published listing.
  */
 
-export const PACKAGE_NAME = "com.animama.avatar-export";
+export const PACKAGE_NAME = "com.animama.avatar-converter";
 
 export const LISTING = {
   name: "Animama",
   id: "com.animama.vpm",
-  url: "https://raymond-van.github.io/animama-avatar-export/index.json",
+  url: "https://raymond-van.github.io/animama-avatar-converter/index.json",
   author: "Animama",
 };
 

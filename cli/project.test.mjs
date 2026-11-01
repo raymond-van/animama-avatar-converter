@@ -94,7 +94,7 @@ test("entries that pin other versions are reported, not replaced", () => {
 test("the released package is installed from its tag", () => {
   assert.equal(
     releasedPackageSpec("0.1.0"),
-    "https://github.com/raymond-van/animama-avatar-export.git?path=/Packages/com.animama.avatar-export#v0.1.0",
+    "https://github.com/raymond-van/animama-avatar-converter.git?path=/Packages/com.animama.avatar-converter#v0.1.0",
   );
 });
 
