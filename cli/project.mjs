@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { assetFiles } from "./prefabs.mjs";
 
 /**
  * Preparing a Unity project: the Packages/manifest.json entries the export
@@ -43,6 +44,50 @@ function satisfies(name, existing, wanted) {
   if (name === "org.mochiya.avatar-tools")
     return existing.endsWith(`#${MOCHIYA_COMMIT}`);
   return false;
+}
+
+/** The assembly definitions a UniVRM copy imported from its .unitypackage puts in Assets. */
+const UNIVRM_ASMDEFS = new Set([
+  "UniGLTF.asmdef",
+  "VRM10.asmdef",
+  "VRM.asmdef",
+]);
+
+/**
+ * The folders under Assets holding a copy of UniVRM, such as
+ * Assets/UniGLTF. Such a copy clashes with the UniVRM packages the export
+ * installs, so it must be deleted first.
+ */
+export async function uniVrmCopiesInAssets(project) {
+  const asmdefs = await assetFiles(path.join(project, "Assets"), (name) =>
+    UNIVRM_ASMDEFS.has(name),
+  );
+  return uniVrmCopyFolders(
+    asmdefs.map((file) =>
+      path.relative(project, file).split(path.sep).join("/"),
+    ),
+  );
+}
+
+/**
+ * The folders to delete for UniVRM assembly definitions at these
+ * project-relative paths: each asmdef's own folder, or the one above it when
+ * that is a Runtime folder (Assets/UniGLTF for Assets/UniGLTF/Runtime/UniGLTF.asmdef).
+ * Never a parent folder such as Assets/Plugins, whose other contents the user
+ * would delete too; folders inside another listed one are left out. Matches
+ * Requirements.UniVrmCopyFolders in the Unity package.
+ */
+export function uniVrmCopyFolders(asmdefPaths) {
+  const folderOf = (asmdef) => {
+    let folder = path.posix.dirname(asmdef);
+    if (folder.endsWith("/Runtime")) folder = path.posix.dirname(folder);
+    // An asmdef directly in Assets has no folder of its own to delete.
+    return folder === "Assets" ? asmdef : folder;
+  };
+  const folders = [...new Set(asmdefPaths.map(folderOf))].sort();
+  return folders.filter(
+    (folder) => !folders.some((other) => folder.startsWith(`${other}/`)),
+  );
 }
 
 /**

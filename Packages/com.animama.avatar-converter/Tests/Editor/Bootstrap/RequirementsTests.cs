@@ -149,8 +149,50 @@ namespace Animama.AvatarConverter.Tests
             Assert.That(changes, Is.EqualTo(new[]
             {
                 "UniVRM 1.0: replace 0.131.3 with 0.131.2",
-                "Mochiya Avatar Tools: install 0.1.6 (commit 0826f6e3)",
+                "Mochiya Avatar Tools: install 0.1.6 at commit 0826f6e3",
             }));
+        }
+
+        [Test]
+        public void UnmetRequirementsReadAsWhatIsWrongAndWhatIsNeeded()
+        {
+            var packages = new Dictionary<string, InstalledPackage>(Ready) { ["com.vrmc.vrm"] = new InstalledPackage("0.131.3", null) };
+            packages.Remove("com.vrmc.gltf");
+
+            var statuses = Requirements.Evaluate(packages, "2022.3.62f3", null);
+
+            Assert.That(statuses.Single(status => status.Component == "UniGLTF").Describe(),
+                Is.EqualTo("UniGLTF: not installed (needs 0.131.2). Choose Install dependencies."));
+            Assert.That(statuses.Single(status => status.Component == "UniVRM 1.0").Describe(),
+                Is.EqualTo("UniVRM 1.0 0.131.3: needs 0.131.2. Choose Install dependencies to switch to the supported version."));
+        }
+
+        [Test]
+        public void AUniVrmCopyInAssetsMustBeDeletedBeforeInstalling()
+        {
+            var statuses = Requirements.Evaluate(new Dictionary<string, InstalledPackage>(), "2022.3.62f3", null,
+                new[] { "Assets/UniGLTF", "Assets/VRM10" });
+
+            var copy = statuses.Single(status => status.Component == "UniVRM");
+            Assert.That(copy.State, Is.EqualTo(RequirementState.Unsupported));
+            Assert.That(copy.Describe(), Does.Contain("Delete Assets/UniGLTF, Assets/VRM10"));
+            Assert.That(Requirements.UrlsToInstall(statuses), Is.Empty, "installing would add a second UniVRM");
+        }
+
+        [Test]
+        public void AUniVrmCopyIsDeletedByItsOwnFolderNeverAParent()
+        {
+            Assert.That(Requirements.UniVrmCopyFolders(new[]
+            {
+                "Assets/UniGLTF/Runtime/UniGLTF.asmdef",
+                "Assets/Plugins/VRM10/Runtime/VRM10.asmdef",
+                "Assets/VRM/Runtime/VRM.asmdef",
+                "Assets/VRM/UniGLTF/Runtime/UniGLTF.asmdef",
+                "Packages/com.vrmc.gltf/Runtime/UniGLTF.asmdef",
+                null,
+            }), Is.EqualTo(new[] { "Assets/Plugins/VRM10", "Assets/UniGLTF", "Assets/VRM" }));
+            Assert.That(Requirements.UniVrmCopyFolders(new[] { "Assets/UniGLTF.asmdef" }), Is.EqualTo(new[] { "Assets/UniGLTF.asmdef" }),
+                "never Assets itself");
         }
 
         private static RequirementState State(IEnumerable<RequirementStatus> statuses, string component) =>

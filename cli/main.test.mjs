@@ -189,6 +189,29 @@ test("manifest entries pinning other versions stop the run", async () => {
   }
 });
 
+test("a UniVRM copy in Assets stops the run before the manifest changes", async () => {
+  const { project, out, calls, io, cleanup } = setup();
+  const manifest = path.join(project, "Packages", "manifest.json");
+  const before = readFileSync(manifest, "utf8");
+  for (const folder of ["UniGLTF/Runtime", "VRM10/Runtime"]) {
+    mkdirSync(path.join(project, "Assets", folder), { recursive: true });
+    writeFileSync(
+      path.join(project, "Assets", folder, `${folder.split("/")[0]}.asmdef`),
+      "{}",
+    );
+  }
+  try {
+    await assert.rejects(
+      main(["--project", project, "--prefab", "A", "--out", out], io),
+      /copied into Assets\/UniGLTF, Assets\/VRM10.*Delete Assets\/UniGLTF, Assets\/VRM10/s,
+    );
+    assert.equal(calls.length, 0);
+    assert.equal(readFileSync(manifest, "utf8"), before);
+  } finally {
+    cleanup();
+  }
+});
+
 test("a prefab Mochiya cannot convert exits 2 and writes nothing", async () => {
   const { project, out, output, io, cleanup } = setup({
     exitCode: 2,
