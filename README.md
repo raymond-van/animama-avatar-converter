@@ -7,6 +7,8 @@ Everything runs on your computer; nothing is uploaded.
 > Convert only an Avatar whose licence allows it, and share the VRM only if the
 > licence allows that too.
 
+# Instructions
+
 Open the section for your system below. Each one offers two ways to convert;
 both produce the same VRM:
 
@@ -21,7 +23,7 @@ After converting: [use the VRM in Animama](#use-the-vrm-in-animama) ·
 [troubleshooting](#troubleshooting)
 
 <details>
-<summary><b>Windows</b></summary>
+<summary><h2>Windows</h2></summary>
 
 ### Set up
 
@@ -66,7 +68,12 @@ Animama](#use-the-vrm-in-animama).
 You don't need to add the package in VCC: the first run adds the converter and
 its dependencies to the project's `Packages/manifest.json`.
 
-1. Install the LTS version of [Node.js][node] (22 or later).
+1. Install [Node.js][node] (22 or later). In Terminal, run:
+
+   ```powershell
+   winget install OpenJS.NodeJS.LTS
+   ```
+
 2. Close the project in Unity.
 3. In File Explorer, open the Avatar's project folder (the one with `Assets`,
    `Packages` and `ProjectSettings`). Right-click an empty area and choose
@@ -93,7 +100,7 @@ Animama](#use-the-vrm-in-animama).
 </details>
 
 <details>
-<summary><b>macOS</b></summary>
+<summary><h2>macOS</h2></summary>
 
 VRChat Creator Companion doesn't run on macOS. This guide uses VRChat's
 [VPM CLI][vpm-cli], the command-line version of VCC. If you prefer a window
@@ -163,7 +170,14 @@ Animama](#use-the-vrm-in-animama).
 You don't need to add the package with VPM: the first run adds the converter
 and its dependencies to the project's `Packages/manifest.json`.
 
-1. Install the LTS version of [Node.js][node] (22 or later).
+1. Install [Node.js][node] (22 or later). With [Homebrew][brew], run:
+
+   ```bash
+   brew install node
+   ```
+
+   Without Homebrew, use the macOS installer from [nodejs.org][node].
+
 2. Close the project in Unity.
 3. Open **Terminal** and go to the Avatar's project folder (the one with
    `Assets`, `Packages` and `ProjectSettings`). Type `cd ` with a space, drag
@@ -219,6 +233,9 @@ file.
   face itself.
 - **PhysBones** become VRM springs: hair and clothes still move, but can't be
   grabbed or stretched.
+- **Shaders other than lilToon**, such as Poiyomi. Those materials keep only
+  their main texture and colour, so the Avatar looks flatter: toon shading,
+  outlines, emission and matcaps are lost.
 - **Jaw-bone lip sync.**
 - **Vertex colours**, so some lilToon outlines look slightly heavier.
 - **Avatars that need a Modular Avatar build** aren't supported yet.
@@ -264,3 +281,4 @@ and [UniVRM](https://github.com/vrm-c/UniVRM), both MIT.
 [git-win]: https://git-scm.com/download/win
 [dotnet]: https://dotnet.microsoft.com/download/dotnet/8.0
 [node]: https://nodejs.org
+[brew]: https://brew.sh
