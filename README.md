@@ -21,7 +21,7 @@ After converting: [use the VRM in Animama](#use-the-vrm-in-animama) ·
 [troubleshooting](#troubleshooting)
 
 <details>
-<summary><b>Windows</b></summary>
+<summary><h1>Windows</h1></summary>
 
 ### Set up
 
@@ -93,7 +93,7 @@ Animama](#use-the-vrm-in-animama).
 </details>
 
 <details>
-<summary><b>macOS</b></summary>
+<summary><h1>macOS</h1></summary>
 
 VRChat Creator Companion doesn't run on macOS. This guide uses VRChat's
 [VPM CLI][vpm-cli], the command-line version of VCC. If you prefer a window
