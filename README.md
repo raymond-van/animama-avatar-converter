@@ -233,6 +233,9 @@ file.
   face itself.
 - **PhysBones** become VRM springs: hair and clothes still move, but can't be
   grabbed or stretched.
+- **Shaders other than lilToon**, such as Poiyomi. Those materials keep only
+  their main texture and colour, so the Avatar looks flatter: toon shading,
+  outlines, emission and matcaps are lost.
 - **Jaw-bone lip sync.**
 - **Vertex colours**, so some lilToon outlines look slightly heavier.
 - **Avatars that need a Modular Avatar build** aren't supported yet.
