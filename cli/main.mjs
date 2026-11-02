@@ -12,6 +12,7 @@ import {
   planManifest,
   projectIsOpen,
   releasedPackageSpec,
+  uniVrmCopiesInAssets,
 } from "./project.mjs";
 import {
   CANNOT_CONVERT,
@@ -91,8 +92,16 @@ async function resolveUnityEditor(project, explicit, env) {
   );
 }
 
-/** Add the package and its dependencies to the manifest; refuse entries the export cannot use. */
+/**
+ * Add the package and its dependencies to the manifest; refuse entries the
+ * export cannot use, and a UniVRM copy in Assets that its packages would clash with.
+ */
 async function prepareManifest(project, packageSpec, log) {
+  const copies = await uniVrmCopiesInAssets(project);
+  if (copies.length > 0)
+    throw new Error(
+      `UniVRM is copied into ${copies.join(", ")}, which would clash with the UniVRM packages the export installs. Delete ${copies.join(", ")} and the matching .meta files, then run again.`,
+    );
   const manifestPath = path.join(project, "Packages", "manifest.json");
   const plan = planManifest(
     await readFile(manifestPath, "utf8"),

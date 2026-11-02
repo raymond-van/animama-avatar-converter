@@ -12,14 +12,14 @@ const AVATAR_DESCRIPTOR =
   /m_Script: \{fileID: 542108242, guid: 67cc4cb7839cd3741b63733d5adf0442/;
 const META_GUID = /^guid: ([0-9a-f]{32})/m;
 
-/** Every .prefab under Assets/, skipping folders Unity ignores. */
-async function walk(folder) {
+/** Every file under `folder` whose name passes `match`, skipping folders Unity ignores. */
+export async function assetFiles(folder, match) {
   const found = [];
   for (const entry of await readdir(folder, { withFileTypes: true })) {
     if (entry.name.startsWith(".") || entry.name.endsWith("~")) continue;
     const full = path.join(folder, entry.name);
-    if (entry.isDirectory()) found.push(...(await walk(full)));
-    else if (entry.name.endsWith(".prefab")) found.push(full);
+    if (entry.isDirectory()) found.push(...(await assetFiles(full, match)));
+    else if (match(entry.name)) found.push(full);
   }
   return found;
 }
@@ -47,7 +47,9 @@ export async function findPrefabs(project) {
   const assets = path.join(project, "Assets");
   const prefabs = [];
   // One file at a time keeps open files and memory small in large projects.
-  for (const file of await walk(assets)) {
+  for (const file of await assetFiles(assets, (name) =>
+    name.endsWith(".prefab"),
+  )) {
     const text = await readFile(file, "utf8");
     const meta = await readFile(`${file}.meta`, "utf8").catch(() => "");
     prefabs.push({

@@ -105,13 +105,15 @@ namespace Animama.AvatarConverter
             // layout, so every button that opens one ends the pass with ExitGUI.
             using (new EditorGUILayout.HorizontalScope())
             {
-                EditorGUILayout.LabelField("Save as", outputPath.Length > 0 ? outputPath : "Not chosen");
+                EditorGUILayout.LabelField("Save as", outputPath.Length > 0 ? "" : "Not chosen");
                 if (GUILayout.Button("Choose…", GUILayout.Width(80)))
                 {
                     ChooseOutput();
                     GUIUtility.ExitGUI();
                 }
             }
+            // On its own wrapped line, since the field beside the label is too narrow for a path.
+            if (outputPath.Length > 0) EditorGUILayout.LabelField(outputPath, EditorStyles.wordWrappedMiniLabel);
 
             EditorGUILayout.Space();
             var playing = EditorApplication.isPlayingOrWillChangePlaymode;
@@ -136,8 +138,8 @@ namespace Animama.AvatarConverter
                     }
                 }
             }
-            // The source problem of a picked object is already shown under the Avatar field.
-            var blocker = exportBlockers.FirstOrDefault(reason => picked == null || reason != sourceProblem);
+            var exportedPath = result?.Status == ExportStatus.Exported ? result.OutputPath : null;
+            var blocker = ExportBlockers.Hint(exportBlockers, picked != null ? sourceProblem : null, outputPath, exportedPath);
             if (blocker != null) EditorGUILayout.HelpBox(blocker, MessageType.Info);
 
             DrawResult();
@@ -205,14 +207,12 @@ namespace Animama.AvatarConverter
             switch (result.Status)
             {
                 case ExportStatus.Exported:
-                    EditorGUILayout.HelpBox(
-                        $"Saved {result.OutputPath} ({result.Bytes / 1024f / 1024f:0.0} MB). In Animama, choose Upload VRM in Create Anima to use it.",
-                        MessageType.Info);
+                    Passed($"Saved {result.OutputPath} ({result.Bytes / 1024f / 1024f:0.0} MB). In Animama, choose Upload VRM in Create Anima to use it.");
                     if (GUILayout.Button(Application.platform == RuntimePlatform.OSXEditor ? "Show in Finder" : "Show in Explorer"))
                         EditorUtility.RevealInFinder(result.OutputPath);
                     break;
                 case ExportStatus.Validated:
-                    EditorGUILayout.HelpBox("Ready to export.", MessageType.Info);
+                    Passed("Validation passed: this Avatar can be exported.");
                     break;
                 case ExportStatus.CannotConvert:
                     EditorGUILayout.HelpBox("Mochiya Avatar Tools cannot convert this Avatar; see the errors below.", MessageType.Error);
@@ -232,6 +232,14 @@ namespace Animama.AvatarConverter
                 var log = string.Join("\n", result.Log.Concat(result.Exception != null ? new[] { result.Exception.ToString() } : Array.Empty<string>()));
                 EditorGUILayout.TextArea(log, EditorStyles.wordWrappedLabel);
             }
+        }
+
+        /// <summary>A help box with a tick, so success does not look like Unity's info or warning boxes.</summary>
+        private static void Passed(string text)
+        {
+            var tick = EditorGUIUtility.FindTexture("TestPassed");
+            if (tick == null) EditorGUILayout.HelpBox(text, MessageType.None);
+            else GUILayout.Label(new GUIContent(text, tick), EditorStyles.helpBox);
         }
 
         private static string NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

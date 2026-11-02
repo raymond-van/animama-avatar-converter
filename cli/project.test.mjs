@@ -12,11 +12,12 @@ import path from "node:path";
 import test from "node:test";
 import {
   DEPENDENCIES,
-  embeddedPackages,
   PACKAGE_NAME,
+  embeddedPackages,
   planManifest,
   projectIsOpen,
   releasedPackageSpec,
+  uniVrmCopyFolders,
 } from "./project.mjs";
 
 const SPEC = releasedPackageSpec("0.1.0");
@@ -183,4 +184,19 @@ test("on Windows, an unheld lockfile is not an open project", () => {
   } finally {
     rmSync(project, { recursive: true, force: true });
   }
+});
+
+test("a UniVRM copy is deleted by its own folder, never a parent", () => {
+  assert.deepEqual(
+    uniVrmCopyFolders([
+      "Assets/UniGLTF/Runtime/UniGLTF.asmdef",
+      "Assets/Plugins/VRM10/Runtime/VRM10.asmdef",
+      "Assets/VRM/Runtime/VRM.asmdef",
+      "Assets/VRM/UniGLTF/Runtime/UniGLTF.asmdef",
+    ]),
+    ["Assets/Plugins/VRM10", "Assets/UniGLTF", "Assets/VRM"],
+  );
+  assert.deepEqual(uniVrmCopyFolders(["Assets/UniGLTF.asmdef"]), [
+    "Assets/UniGLTF.asmdef",
+  ]);
 });

@@ -190,6 +190,27 @@ namespace Animama.AvatarConverter.Tests
             Assert.That(ExportBlockers.Find(true, false, null, null, existing, export: true).Single(), Does.Contain("already exists"));
         }
 
+        [Test]
+        public void TheFileJustSavedIsNotShownAsAProblem()
+        {
+            var saved = Path.Combine(tempFolder, "Avatar.vrm");
+            File.WriteAllText(saved, "");
+            var blockers = ExportBlockers.Find(true, false, null, null, saved, export: true);
+
+            Assert.That(ExportBlockers.Hint(blockers, null, saved, exportedPath: saved), Is.Null);
+            Assert.That(ExportBlockers.Hint(blockers, null, saved, exportedPath: null), Does.Contain("already exists"),
+                "a file the window did not just save still needs a new name");
+        }
+
+        [Test]
+        public void AProblemShownUnderTheAvatarFieldIsNotRepeated()
+        {
+            var blockers = ExportBlockers.Find(true, false, "Choose the Avatar's prefab.", null, null, export: true);
+
+            Assert.That(ExportBlockers.Hint(blockers, "Choose the Avatar's prefab.", null, null), Does.Contain("where to save"));
+            Assert.That(ExportBlockers.Hint(blockers, null, null, null), Is.EqualTo("Choose the Avatar's prefab."));
+        }
+
         private static GameObject SavePrefab(string name, bool withChild = false)
         {
             var source = new GameObject(name);
