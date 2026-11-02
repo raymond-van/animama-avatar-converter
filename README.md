@@ -240,6 +240,10 @@ file.
 - **Vertex colours**, so some lilToon outlines look slightly heavier.
 - **Avatars that need a Modular Avatar build** aren't supported yet.
 
+Other Unity humanoid models convert too, but without a VRChat avatar
+descriptor the VRM has no lip sync, blinking or eye movement. From a terminal,
+pass the model's prefab name, since only VRChat Avatars are found automatically.
+
 ## Troubleshooting
 
 **Unity says Git is required.** Install Git (see **Set up** for your system),
