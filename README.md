@@ -240,6 +240,12 @@ file.
 - **Vertex colours**, so some lilToon outlines look slightly heavier.
 - **Avatars that need a Modular Avatar build** aren't supported yet.
 
+Some Avatars map humanoid bones, often the thumbs, to helper bones that move
+no part of the model, while the mesh follows bones beside them. The converter
+maps those humanoid bones to the bones the mesh follows and lists them in the
+report. If it can't find such a bone, the report names the humanoid bones whose
+motion won't show.
+
 Other Unity humanoid models convert too, but without a VRChat avatar
 descriptor the VRM has no lip sync, blinking or eye movement. From a terminal,
 pass the model's prefab name, since only VRChat Avatars are found automatically.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Animama.AvatarConverter
 {
@@ -73,6 +74,20 @@ namespace Animama.AvatarConverter
         /// those only the conversion finds, such as omitted colliders.
         /// </summary>
         public string ExportReport { get; internal set; }
+
+        /// <summary>
+        /// "Warning:" lines about humanoid bones that move no part of the model:
+        /// those mapped to the bones the mesh follows, and those left as they
+        /// were. Null when every humanoid bone moves something.
+        /// </summary>
+        public string RepairReport { get; internal set; }
+
+        /// <summary>
+        /// The lines the window and the command explain: <see cref="RepairReport"/>,
+        /// then Mochiya's export report, or its validation report when no export ran.
+        /// </summary>
+        internal string ReportToExplain =>
+            string.Join("\n", new[] { RepairReport, ExportReport ?? ValidationReport }.Where(part => !string.IsNullOrEmpty(part)));
 
         /// <summary>
         /// Progress lines in order: stripped objects, posing, Mochiya's detection,

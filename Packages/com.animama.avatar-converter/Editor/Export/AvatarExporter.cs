@@ -11,8 +11,9 @@ namespace Animama.AvatarConverter
     /// Validates and exports a VRChat Avatar prefab as VRM 1.0 for Animama.
     ///
     /// Each run instantiates the prefab in a temporary scene, strips EditorOnly
-    /// objects as a VRChat build does, poses the humanoid T-pose (unless
-    /// <see cref="ExportOptions.KeepPose"/>), then runs Mochiya's Detect,
+    /// objects as a VRChat build does, maps humanoid bones that move nothing to
+    /// the bones the mesh follows (<see cref="HumanoidBoneRepair"/>), poses the
+    /// humanoid T-pose (unless <see cref="ExportOptions.KeepPose"/>), then runs Mochiya's Detect,
     /// Validate and Export. The source prefab and the user's scenes are left
     /// unchanged. The VRM is written beside the target under a temporary name and
     /// moved into place only when complete; an existing file is never overwritten.
@@ -63,12 +64,16 @@ namespace Animama.AvatarConverter
                 }
 
                 var scenes = new SceneSetupScope();
+                HumanoidBoneRepair.Outcome repair = null;
                 try
                 {
                     using (var converter = createConverter(options, prefab.name))
                     {
                         var root = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
                         StripEditorOnly(root, result.Add);
+                        repair = HumanoidBoneRepair.Repair(root);
+                        foreach (var line in repair.Log) result.Add(line);
+                        result.RepairReport = repair.Report.Count > 0 ? string.Join("\n", repair.Report) : null;
                         Pose(root, options.KeepPose, result);
 
                         result.Add("Detect: " + converter.Detect(root));
@@ -97,6 +102,7 @@ namespace Animama.AvatarConverter
                 }
                 finally
                 {
+                    repair?.Dispose();
                     RestoreScenes(scenes, result);
                 }
 

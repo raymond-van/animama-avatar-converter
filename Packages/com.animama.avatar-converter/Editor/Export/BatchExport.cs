@@ -76,7 +76,7 @@ namespace Animama.AvatarConverter
                 else result = AvatarExporter.Validate(prefab, options, Progress);
 
                 // The same plain-language report as the window.
-                foreach (var item in ReportExplanations.Explain(result.ExportReport ?? result.ValidationReport))
+                foreach (var item in ReportExplanations.Explain(result.ReportToExplain))
                     Debug.Log($"[Animama] {(item.IsError ? "Error" : "Note")}: {item.Text}{(item.Count > 1 ? $" ({item.Count})" : "")}");
                 if (result.Status == ExportStatus.Failed) Debug.LogError("[Animama] Failed: " + result.Exception);
                 exitCode = result.Status == ExportStatus.CannotConvert ? CannotConvertExitCode : result.Status == ExportStatus.Failed ? 1 : 0;

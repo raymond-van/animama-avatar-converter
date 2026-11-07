@@ -4,6 +4,7 @@
   "references": [
     "Animama.AvatarConverter.Editor",
     "Animama.AvatarConverter.Bootstrap",
+    "VRM10",
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner"
   ],
