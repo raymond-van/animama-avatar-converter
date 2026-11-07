@@ -16,8 +16,7 @@ namespace Animama.AvatarConverter
     /// so no motion on those bones shows. Before posing, the exporter gives the
     /// instance a copy of its humanoid Avatar with each such bone moved to its
     /// counterpart, so the T-pose and the VRM both use the real bones; the
-    /// source prefab and its Avatar asset stay unchanged. Animama applies the
-    /// same rules when it loads a VRM converted before this repair.
+    /// source prefab and its Avatar asset stay unchanged.
     /// </summary>
     internal static class HumanoidBoneRepair
     {
