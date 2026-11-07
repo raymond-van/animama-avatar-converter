@@ -130,6 +130,33 @@ namespace Animama.AvatarConverter.Tests
         }
 
         [Test]
+        public void MapsHumanoidBonesThatMoveNothingBeforeTheConverterRuns()
+        {
+            var rig = new HumanoidTestRig();
+            var avatar = rig.AddAnimator();
+            AssetDatabase.CreateAsset(rig.Mesh, AssetFolder + "/Body.asset");
+            AssetDatabase.CreateAsset(avatar, AssetFolder + "/Avatar.asset");
+            var prefab = SavePrefab(rig.Root);
+            string seen = null;
+            var converter = new FakeConverter
+            {
+                OnDetect = root => seen = root.GetComponent<Animator>().GetBoneTransform(HumanBodyBones.LeftThumbProximal).name,
+            };
+
+            var result = AvatarExporter.Run(prefab, null, KeepPose(), (_, __) => converter);
+
+            Assert.That(result.Status, Is.EqualTo(ExportStatus.Validated), result.Error);
+            Assert.That(seen, Is.EqualTo("Thumb1_L"), "the converter sees the bone the mesh follows");
+            Assert.That(result.RepairReport, Does.Contain("Left Thumb Proximal (Thumb1Dummy_L → Thumb1_L)"));
+            Assert.That(result.ReportToExplain, Does.StartWith(result.RepairReport).And.EndWith("Ready"));
+            Assert.That(ReportExplanations.Explain(result.ReportToExplain).Select(item => item.Text),
+                Has.Some.Contains("Thumb1Dummy_L → Thumb1_L"));
+            var stored = prefab.GetComponent<Animator>().avatar.humanDescription.human;
+            Assert.That(stored.Single(bone => bone.humanName == "Left Thumb Proximal").boneName, Is.EqualTo("Thumb1Dummy_L"),
+                "the prefab's Avatar asset keeps its mapping");
+        }
+
+        [Test]
         public void ReportsEachLineAsItHappens()
         {
             var prefab = SavePrefab(new GameObject("Avatar"));
@@ -357,11 +384,13 @@ namespace Animama.AvatarConverter.Tests
             public string ExportedTo;
             public string RootScenePath;
             public Action OnExport;
+            public Action<GameObject> OnDetect;
             public int LinesBeforeExport;
 
             public string Detect(GameObject root)
             {
                 RootScenePath = root.scene.path;
+                OnDetect?.Invoke(root);
                 return "kind=Avatar";
             }
 

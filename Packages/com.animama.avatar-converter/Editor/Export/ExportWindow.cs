@@ -195,7 +195,7 @@ namespace Animama.AvatarConverter
                 EditorUtility.ClearProgressBar();
             }
             // The export report adds what only the conversion finds, such as omitted colliders.
-            reportItems = ReportExplanations.Explain(result.ExportReport ?? result.ValidationReport);
+            reportItems = ReportExplanations.Explain(result.ReportToExplain);
             ResolvePick();
         }
 
