@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-11-07)
 
 - Humanoid bones mapped to helper bones that move no part of the model, such
   as dummy thumbs, now map to the bones beside them that the mesh follows, so

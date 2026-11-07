@@ -1,6 +1,6 @@
 {
   "name": "com.animama.avatar-converter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "displayName": "Animama Avatar Converter",
   "description": "Export a VRChat Avatar to a VRM 1.0 file for Animama through Mochiya Avatar Tools. Runs locally; uploads nothing.",
   "unity": "2022.3",
