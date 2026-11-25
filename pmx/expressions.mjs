@@ -178,6 +178,8 @@ function applyOverrides(overrides, faceMorphs, presets, parts) {
     if (!OVERRIDABLE.includes(override.name))
       throw new Error(`--expression: "${override.name}" is not a preset or part that can be overridden (${OVERRIDABLE.slice(0, 13).join(", ")}, Fcl_<BRW|EYE|MTH>_<Mood>).`);
     if (chosen.has(override.name)) throw new Error(`--expression ${override.name} is given twice.`);
+    if (override.morphs.every((m) => m.weight === 0) && !override.name.startsWith("Fcl_") && !Object.values(MOOD_PRESETS).includes(override.name))
+      throw new Error(`--expression ${override.name}= can't leave a blink or vowel empty: Animama would fill it from the model's standard morphs. Name the morphs it should play.`);
     chosen.set(
       override.name,
       mergeBinds(

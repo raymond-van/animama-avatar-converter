@@ -103,4 +103,8 @@ test("parses --expression overrides", () => {
   assert.throws(() => parseExpressionOverride("happy=あ*"), /between 0 and 1/, "an empty weight is not 0");
   assert.throws(() => parseExpressionOverride("joy=あ"), /not a preset or part/);
   assert.throws(() => parseExpressionOverride("Fcl_ALL_Joy=あ"), /not a preset or part/);
+  assert.throws(() => parseExpressionOverride("blink="), /can't leave a blink or vowel empty/);
+  assert.throws(() => parseExpressionOverride("aa="), /can't leave a blink or vowel empty/);
+  assert.throws(() => parseExpressionOverride("aa=あ*0"), /can't leave a blink or vowel empty/, "a weight of 0 is empty too");
+  assert.deepEqual(parseExpressionOverride("Fcl_EYE_Joy="), { name: "Fcl_EYE_Joy", morphs: [] }, "a mood region may be neutral");
 });

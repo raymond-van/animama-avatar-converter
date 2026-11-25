@@ -143,7 +143,7 @@ test("reads the author from the comment, and options override metadata", async (
   assert.equal(guessAuthor("Model data is for MMD use only."), null);
   assert.equal(guessAuthor("Modeling software: Blender"), null);
   assert.equal(guessAuthor("改変：Editor\nモデル製作：Original"), "Original");
-  assert.equal(guessAuthor("Author: A\nModel: Miku"), "A");
+  assert.equal(guessAuthor("Author: A\nModel: Test Doll"), "A");
   const { json } = await convert();
   assert.deepEqual(json.extensions.VRMC_vrm.meta.authors, ["テスト作者"]);
   const meta = (await convert(undefined, { name: "N", author: "A", version: "2", copyright: "C" })).json.extensions.VRMC_vrm.meta;

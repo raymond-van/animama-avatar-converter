@@ -153,7 +153,9 @@ test("refuses overrides it cannot apply", async () => {
   await assert.rejects(run([{ name: "Fcl_ALL_Joy", morphs: [] }]), /not a preset or part/);
   await assert.rejects(run([{ name: "sad", morphs: [{ morph: "泣く", weight: 1 }] }]), /no face morph named "泣く"/);
   await assert.rejects(run([{ name: "happy", morphs: [] }, { name: "Fcl_EYE_Joy", morphs: [] }]), /both set the happy face/);
-  await assert.rejects(run([{ name: "aa", morphs: [] }, { name: "aa", morphs: [] }]), /given twice/);
+  const a = [{ morph: "あ", weight: 1 }];
+  await assert.rejects(run([{ name: "aa", morphs: a }, { name: "aa", morphs: a }]), /given twice/);
+  await assert.rejects(run([{ name: "blink", morphs: [] }]), /can't leave a blink or vowel empty/);
 });
 
 test("keeps every target name unique and the bone morph's neck bone untouched in the skeleton", async () => {

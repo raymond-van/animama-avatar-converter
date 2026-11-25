@@ -268,8 +268,9 @@ npx animama-avatar-converter model.pmx --expression "sad=困る+口角下げ*0.6
   mood is `Joy` (happy), `Fun` (relaxed), `Sorrow`, `Angry` or `Surprised`.
 - Give a mood's preset or its regions, not both.
 - The morphs are the model's face morphs, by their names in the model;
-  material and UV morphs can't be chosen. A weight after `*` is between 0 and 1,
-  and `sad=` leaves that face still.
+  material and UV morphs can't be chosen. A weight after `*` is between 0 and 1.
+- `sad=` leaves a mood still. A blink or vowel can't be left empty: Animama
+  would fill it from the model's standard morphs.
 
 # Reference
 

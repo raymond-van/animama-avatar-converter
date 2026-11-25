@@ -267,5 +267,8 @@ export function parseExpressionOverride(text) {
       if (!(weight >= 0 && weight <= 1)) throw new Error(`--expression ${name}: the weight in "${part}" must be between 0 and 1.`);
       return { morph: (star > 0 ? part.slice(0, star) : part).trim(), weight };
     });
+  // Animama fills an empty blink or vowel from the model's standard morphs, so it could not stay still.
+  if (morphs.every((m) => m.weight === 0) && ["aa", "ih", "ou", "ee", "oh", "blink", "blinkLeft", "blinkRight"].includes(name))
+    throw new Error(`--expression ${name}= can't leave a blink or vowel empty: Animama would fill it from the model's standard morphs. Name the morphs it should play.`);
   return { name, morphs };
 }

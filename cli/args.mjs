@@ -25,7 +25,7 @@ export const USAGE = [
   "  --expression <name>=<morph>[*<weight>][+<morph>…]",
   "                          choose the morphs an expression plays (a preset such",
   "                          as happy or blinkLeft, or a part such as Fcl_EYE_Joy);",
-  "                          repeatable, and <name>= leaves it neutral",
+  "                          repeatable; <mood>= leaves a mood neutral",
   "Unity only:",
   "  --project <folder>      the Unity project (default: the current folder)",
   "  --unity <editor>        the Unity editor (default: the project's version from",
