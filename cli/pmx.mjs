@@ -11,8 +11,8 @@ export const CANNOT_CONVERT = 2;
 /** Options that only mean something for a Unity project. */
 export const UNITY_ONLY_OPTIONS = ["project", "unity", "package", "log"];
 
-/** Whether the command's argument names a PMX model rather than a prefab. */
-export const isPmxArgument = (argument) => typeof argument === "string" && /\.pmx$/i.test(argument);
+/** Whether the command's argument names an MMD model (PMX, or PMD to refuse plainly) rather than a prefab. */
+export const isPmxArgument = (argument) => typeof argument === "string" && /\.(pmx|pmd)$/i.test(argument);
 
 const exists = (file) =>
   access(file).then(

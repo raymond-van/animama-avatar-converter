@@ -65,6 +65,15 @@ test("exits 2 for a file that is not a convertible PMX", async () => {
   assert.ok(!(await readdir(dir)).includes("bad.vrm"));
 });
 
+test("refuses a PMD file plainly instead of looking for a Unity project", async () => {
+  const { dir } = await modelFolder();
+  const old = path.join(dir, "old.pmd");
+  await writeFile(old, "Pmd\0old format");
+  const { errors, io } = capture();
+  assert.equal(await main([old], { ...io, cwd: dir }), 2);
+  assert.match(errors[0], /PMD file, MikuMikuDance's older format/);
+});
+
 test("refuses Unity-only options and missing files", async () => {
   const { dir, file } = await modelFolder();
   const { io } = capture();
