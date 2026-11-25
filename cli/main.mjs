@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, USAGE } from "./args.mjs";
+import { convertPmxCommand, isPmxArgument } from "./pmx.mjs";
 import { findPrefabs, resolvePrefab } from "./prefabs.mjs";
 import {
   embeddedPackages,
@@ -31,6 +32,10 @@ import {
  * editor's window. Run in the Unity project's folder:
  *
  *   npx animama-avatar-converter [<Avatar prefab name or path>] [--out <file.vrm>] …
+ *
+ * Or convert a MikuMikuDance model, which needs no Unity (see ./pmx.mjs):
+ *
+ *   npx animama-avatar-converter <model.pmx> [--out <file.vrm>] …
  *
  * With no prefab it uses the project's only Avatar prefab, or lists them. It
  * adds the com.animama.avatar-converter package and its dependencies to the
@@ -142,10 +147,16 @@ export async function main(argv, io = {}) {
     log(USAGE);
     return 0;
   }
+  const cwd = io.cwd ?? process.cwd();
+  if (isPmxArgument(options.prefab)) {
+    const { version } = JSON.parse(
+      await readFile(path.join(cliRoot, "package.json"), "utf8"),
+    );
+    return convertPmxCommand({ options, flags, cwd, version, log, error });
+  }
   log(
     "Convert only an Avatar whose licence allows you to convert it for your own use, and share the VRM only if the licence allows it.",
   );
-  const cwd = io.cwd ?? process.cwd();
   const project = path.resolve(cwd, options.project ?? ".");
   if (!(await exists(path.join(project, "ProjectSettings/ProjectVersion.txt"))))
     throw new Error(

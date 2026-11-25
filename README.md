@@ -282,7 +282,9 @@ message lists why; the full log is in `<Avatar name>.export.log`.
 ## License
 
 MIT. Built on [Mochiya Avatar Tools](https://github.com/mochiya-labs/unity-avatar-tools)
-and [UniVRM](https://github.com/vrm-c/UniVRM), both MIT.
+and [UniVRM](https://github.com/vrm-c/UniVRM), both MIT. The MMD (PMX) converter
+is adapted from [pmx-to-vrm](https://github.com/GoldenCarrotMLP/pmx-to-vrm)
+(MIT; its notice is in `pmx/LICENSE-pmx-to-vrm`).
 
 [vcc]: https://vcc.docs.vrchat.com
 [vpm-cli]: https://vcc.docs.vrchat.com/vpm/cli/

@@ -19,13 +19,16 @@
   },
   "files": [
     "cli/*.mjs",
-    "!cli/*.test.mjs"
+    "!cli/*.test.mjs",
+    "pmx/*.mjs",
+    "!pmx/*.test.mjs",
+    "pmx/LICENSE-pmx-to-vrm"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test \"cli/*.test.mjs\" \"scripts/*.test.mjs\"",
+    "test": "node --test \"cli/*.test.mjs\" \"pmx/*.test.mjs\" \"scripts/*.test.mjs\"",
     "check": "node scripts/check.mjs",
     "prepublishOnly": "node scripts/prepublish.mjs && npm test"
   }
