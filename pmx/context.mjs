@@ -94,7 +94,8 @@ export function createContext(model, options) {
     /** @type {object | null} */ springBone: null,
     /** @type {object | null} VRMC_vrm expressions. */ expressions: null,
     /** @type {object | null} VRMC_vrm look-at. */ lookAt: null,
-    /** @type {Map<number, number>} PMX texture index to glTF texture. */ gltfTextures: new Map(),
+    /** @type {Map<object, number>} Embedded image to glTF texture, so entries naming one file share it. */ gltfTextures: new Map(),
+    /** @type {Map<object, import("./materials.mjs").ToonRamp | null>} Toon ramp per texture entry. */ toonRamps: new Map(),
   };
 }
 

@@ -158,7 +158,10 @@ test("embeds textures found by case-insensitive paths and reports missing ones",
   assert.equal(json.images.length, 1);
   assert.equal(json.images[0].mimeType, "image/png");
   const missing = await convert({ ...parts, files: {} });
-  assert.deepEqual(missing.report.missingTextures, [{ stored: "tex\\Body.bmp", problem: "not found" }]);
+  assert.deepEqual(missing.report.missingTextures, [
+    { stored: "tex\\Body.bmp", problem: "not found" },
+    { stored: "toon_body.bmp", problem: "not found" },
+  ]);
   assert.equal(missing.json.images, undefined);
   assert.equal(report.missingTextures.length, 0);
 });
@@ -180,7 +183,7 @@ test("is deterministic", async () => {
 test("converts in memory without a folder, reporting the textures as missing", () => {
   const { model } = syntheticHumanoid();
   const { report } = convertPmx(writePmx(model), { baseDir: path.join(os.tmpdir(), "does-not-exist"), converterVersion: "0" });
-  assert.equal(report.missingTextures.length, 1);
+  assert.equal(report.missingTextures.length, 2);
 });
 
 test("names the VRM after the file when the PMX has no name", async () => {

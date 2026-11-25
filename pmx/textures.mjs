@@ -130,7 +130,13 @@ export function loadTextures(stored, baseDir) {
   });
 }
 
-/** One image file, read on first use. @param {string} file */
+/**
+ * One image file, read on first use. Decoding happens at most once for the
+ * alpha analysis and the PNG re-encoding together, and the decoded pixels are
+ * not kept. A PNG the decoder cannot read still embeds as it is: only a file
+ * that cannot be embedded at all sets `problem`.
+ * @param {string} file
+ */
 function imageFile(file) {
   /** @type {Uint8Array | null | undefined} */
   let bytes;
@@ -140,53 +146,56 @@ function imageFile(file) {
   let embed;
   /** @type {"opaque" | "cutout" | "blend" | undefined} */
   let alpha;
+  const read = () => {
+    if (bytes === undefined) {
+      bytes = null;
+      try {
+        bytes = new Uint8Array(readFileSync(file));
+        kind = detectImageKind(bytes, file);
+      } catch (error) {
+        image.problem = `unreadable (${error.code ?? error.message})`;
+      }
+    }
+    return bytes;
+  };
+  /** Decode, recording why it failed only for formats that have no other way to embed. */
+  const decode = () => {
+    const raw = read();
+    if (!raw || kind === "jpeg") return null;
+    const reencoded = kind !== "png";
+    try {
+      const decoded = decodeImage(raw, kind);
+      if (!decoded && reencoded) image.problem = kind === "gif" ? "GIF is not supported" : "unknown image format";
+      return decoded;
+    } catch (error) {
+      if (reencoded) image.problem = `unreadable (${error.message})`;
+      return null;
+    }
+  };
+  /** Decode once, keeping only the results: the alpha usage and, for BMP, TGA and DDS, the PNG. */
+  const analyse = () => {
+    const pixels = decode();
+    alpha = pixels ? alphaUsage(pixels) : "opaque";
+    if (embed === undefined && kind !== "png" && kind !== "jpeg") embed = pixels ? { bytes: encodePng(pixels), mimeType: "image/png" } : null;
+  };
   const image = {
     /** @type {string | null} */
     problem: null,
-    read() {
-      if (bytes === undefined) {
-        bytes = null;
-        try {
-          bytes = new Uint8Array(readFileSync(file));
-          kind = detectImageKind(bytes, file);
-        } catch (error) {
-          image.problem = `unreadable (${error.code ?? error.message})`;
-        }
-      }
-      return bytes;
-    },
     /** @returns {import("./images.mjs").RgbaImage | null} */
-    pixels() {
-      const raw = image.read();
-      if (!raw || kind === "jpeg") return null;
-      try {
-        const decoded = decodeImage(raw, kind);
-        if (!decoded) image.problem = kind === "gif" ? "GIF is not supported" : "unknown image format";
-        return decoded;
-      } catch (error) {
-        image.problem = `unreadable (${error.message})`;
-        return null;
-      }
-    },
+    pixels: () => decode(),
     alpha() {
-      if (alpha === undefined) {
-        const pixels = image.pixels();
-        alpha = pixels ? alphaUsage(pixels) : "opaque";
-      }
-      return alpha;
+      if (alpha === undefined) analyse();
+      return /** @type {"opaque" | "cutout" | "blend"} */ (alpha);
     },
     embedded() {
       if (embed === undefined) {
-        const raw = image.read();
+        const raw = read();
         if (!raw) embed = null;
         else if (kind === "png") embed = { bytes: raw, mimeType: "image/png" };
         else if (kind === "jpeg") embed = { bytes: raw, mimeType: "image/jpeg" };
-        else {
-          const pixels = image.pixels();
-          embed = pixels ? { bytes: encodePng(pixels), mimeType: "image/png" } : null;
-        }
+        else analyse();
       }
-      return embed;
+      return embed ?? null;
     },
   };
   return image;

@@ -17,7 +17,7 @@ export function formatReport(report) {
   if (report.springs) lines.push(...report.springs);
   if (report.lookAt) lines.push(`Look-at: ${report.lookAt}`);
   if (report.missingTextures.length > 0) {
-    lines.push("Textures that could not be used (those materials are untextured):");
+    lines.push("Textures that could not be used (their materials lack that texture, toon shading or matcap):");
     for (const { stored, problem } of report.missingTextures) lines.push(`  ${stored}: ${problem}`);
   }
   const dropped = Object.entries(report.dropped);
