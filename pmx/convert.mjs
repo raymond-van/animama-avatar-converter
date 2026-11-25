@@ -4,7 +4,8 @@ import { angleDegrees, fromTo, normalize, quatMultiply, quatNormalize, rotate, s
 import { buildMaterials } from "./materials.mjs";
 import { buildExpressions } from "./expressions.mjs";
 import { buildMorphTargets, countDropped, planMorphs } from "./morphs.mjs";
-import { setupBodies } from "./physics.mjs";
+import { buildLookAt, planLookAt } from "./lookat.mjs";
+import { buildSprings, setupBodies } from "./physics.mjs";
 import { readPmx } from "./reader.mjs";
 import { uniqueName } from "./names.mjs";
 import { loadTextures } from "./textures.mjs";
@@ -43,6 +44,13 @@ export function convertPmx(bytes, options) {
   ctx.bodies = setupBodies(model, ctx.boneCount, ctx.unit, ctx.report.warnings);
   ctx.simulated = new Array(ctx.boneCount).fill(false);
   for (const body of ctx.bodies) if (body.mode !== 0 && body.bone >= 0) ctx.simulated[body.bone] = true;
+  // Physics on a bone the humanoid needs (a neck, say) is left off: it follows the animation,
+  // and its body becomes a collider.
+  const wouldBeHuman = mapHumanoid(model, ctx.parent, new Array(ctx.boneCount).fill(false), []);
+  const demoted = [...new Set(wouldBeHuman.values())].filter((bone) => ctx.simulated[bone]);
+  for (const bone of demoted) ctx.simulated[bone] = false;
+  if (demoted.length > 0)
+    ctx.report.warnings.push(`Physics on humanoid bones was left off; they follow the animation: ${demoted.map((b) => `'${model.bones[b].name}'`).join(", ")}.`);
   ctx.human = mapHumanoid(model, ctx.parent, ctx.simulated, ctx.report.warnings);
   const missing = REQUIRED_BONES.filter((bone) => !ctx.human.has(bone));
   ctx.report.humanBones = humanBoneOrder().filter((bone) => ctx.human.has(bone));
@@ -56,11 +64,15 @@ export function convertPmx(bytes, options) {
   bakeRestPose(ctx);
   placeHips(ctx);
   ground(ctx);
+  // Before bone morphs and springs read the hierarchy: look-at may move bones under the eyes.
+  const lookAt = planLookAt(ctx);
+  buildSprings(ctx);
 
   ctx.textures = loadTextures(model.textures, options.baseDir);
   const plan = planMorphs(ctx);
   const materials = buildMaterials(ctx, plan.alphaAnimated, plan.revealed);
   const targets = buildMorphTargets(ctx, plan);
+  buildLookAt(ctx, lookAt, targets);
   countDropped(ctx, plan);
   const meshNode = ctx.boneCount + ctx.extraNodes.length;
   buildMesh(ctx, materials, targets);

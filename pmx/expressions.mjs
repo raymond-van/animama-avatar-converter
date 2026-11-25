@@ -22,6 +22,8 @@ export function buildExpressions(ctx, { plan, targets, materials, meshNode }) {
   const eyeY = eyeHeight(ctx);
   const faceMorphs = targets.map((target, index) => {
     const key = normalizeName(target.name);
+    // The look-at's own targets (no PMX morph) are not face morphs to compose from.
+    if (target.source < 0) return { target: index, name: target.name, key, region: null, sideX: NaN, lookAt: true };
     const { x, y } = centroid(ctx, target);
     return {
       target: index,
@@ -31,8 +33,10 @@ export function buildExpressions(ctx, { plan, targets, materials, meshNode }) {
       sideX: x,
     };
   });
-  const { presets, parts } = composeFace(faceMorphs, (warning) => report.warnings.push(warning));
-  applyOverrides(ctx.options.expressions ?? [], faceMorphs, presets, parts);
+  const pmxFaceMorphs = faceMorphs.filter((morph) => !morph.lookAt);
+  const { presets, parts } = composeFace(pmxFaceMorphs, (warning) => report.warnings.push(warning));
+  applyOverrides(ctx.options.expressions ?? [], pmxFaceMorphs, presets, parts);
+  for (const [name, target] of Object.entries(ctx.lookAtTargets ?? {})) presets[name] = [{ target, weight: 1 }];
 
   const bind = ({ target, weight }) => ({ node: meshNode, index: target, weight });
   const expression = (binds, extra = {}) => ({
@@ -49,7 +53,9 @@ export function buildExpressions(ctx, { plan, targets, materials, meshNode }) {
   for (const [name, binds] of Object.entries(presets)) {
     // An emotion that moves the eyes would double up with a blink on top.
     const movesEyes = Object.values(MOOD_PRESETS).includes(name) && binds.some((b) => ["EYE", "ALL"].includes(/** @type {string} */ (faceMorphs[b.target].region)));
-    preset[name] = expression(binds, movesEyes ? { overrideBlink: "blend" } : {});
+    // With look-at by expression, the turned iris would cross a closed lid.
+    const closesEyes = ctx.lookAtTargets !== null && ["blink", "blinkLeft", "blinkRight"].includes(name);
+    preset[name] = expression(binds, { ...(movesEyes ? { overrideBlink: "blend" } : {}), ...(closesEyes ? { overrideLookAt: "block" } : {}) });
   }
 
   /** @type {Record<string, object>} */

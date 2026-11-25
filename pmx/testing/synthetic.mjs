@@ -265,10 +265,20 @@ export const BONES = Object.freeze({
  * A small MMD-style humanoid: standard Japanese bone names, arms 35° below
  * horizontal (A-pose), D-bones on the left leg only, a three-bone hair chain
  * with physics, a few morphs, two materials and a BMP texture.
- * @param {{dBones?: boolean}} [options] dBones false leaves out the D-bones and skins the left leg plainly.
- * @returns {{builder: ModelBuilder, model: PmxModel, files: Record<string, Uint8Array>, headVertices: number[]}}
+ * @param {{dBones?: boolean, eyes?: "bone" | "pupil" | "stuck" | "material" | "eyeball" | null, skirt?: boolean, branch?: boolean}} [options]
+ *   dBones false leaves out the D-bones and skins the left leg plainly.
+ *   eyes adds eye meshes in front of the face (by default there are none: the eyes are "painted"):
+ *   "bone" skinned to 左目/右目; "pupil" half to the eye bones and half to pupil bones beside
+ *   them, highlights partly on their own bones, white eyes on the head, brows on brow bones and
+ *   lashes 0.7 on lid bones and 0.3 on the eye bones;
+ *   "stuck" half to the eye bones and half to cheek bones that also move the cheeks;
+ *   "material" an eye material (瞳) skinned to the head, the eye bones skinning nothing;
+ *   "eyeball" the same, as eyeballs as deep as they are wide (眼球).
+ *   skirt adds two simulated skirt chains under 下半身 that hit the legs, tied by a ring joint.
+ *   branch makes 髪3 simulated and adds 髪3b, a second simulated child of 髪2.
+ * @returns {{builder: ModelBuilder, model: PmxModel, files: Record<string, Uint8Array>, headVertices: number[], eyeParts: Record<string, number[]>}}
  */
-export function syntheticHumanoid({ dBones = true } = {}) {
+export function syntheticHumanoid({ dBones = true, eyes = null, skirt = false, branch = false } = {}) {
   const m = new ModelBuilder({ comment: "モデル製作：テスト作者\r\n改変OK", commentEn: "Model: Test Author" });
   const c = Math.cos((35 * Math.PI) / 180);
   const s = Math.sin((35 * Math.PI) / 180);
@@ -429,6 +439,69 @@ export function syntheticHumanoid({ dBones = true } = {}) {
   m.joint({ name: "髪1", bodyA: 0, bodyB: 3, position: [0, 18, 1.2], rotationMin: [-0.5, -0.2, -0.3], rotationMax: [0.5, 0.2, 0.3], rotationSpring: [10, 10, 10] });
   m.joint({ name: "髪2", bodyA: 3, bodyB: 4, position: [0, 16, 1.6], rotationMin: [-0.8, -0.4, -0.4], rotationMax: [0.8, 0.4, 0.4] });
 
+  /** @type {Record<string, number[]>} Vertices of each eye part, for tests. */
+  const eyeParts = {};
+  if (eyes) {
+    // MMD faces −Z: the eyes' fronts are at z = −1.4 (the head box), the eye bones behind them.
+    m.material({ name: { material: "瞳", eyeball: "眼球" }[eyes] ?? "目", diffuse: [0.3, 0.5, 0.9, 1], ambient: [0.2, 0.3, 0.5], sharedToon: true, toonIndex: 0 });
+    for (const [sign, p, eyeBone] of [
+      [1, "左", BONES.leftEye],
+      [-1, "右", BONES.rightEye],
+    ]) {
+      const front = [0.6 * sign, 18, -1.42];
+      const back = [0.6 * sign, 18, -1.5];
+      if (eyes === "bone") eyeParts[`${p}iris`] = m.box(front, back, 0.3, eyeBone);
+      else if (eyes === "pupil") {
+        const pupil = m.bone(`${p}瞳`, [0.6 * sign, 18, -1.46], BONES.head);
+        const highlight = m.bone(`${p}HL`, [0.65 * sign, 18.1, -1.5], BONES.head);
+        eyeParts[`${p}iris`] = m.box(front, back, 0.3, eyeBone, pupil);
+        eyeParts[`${p}highlight`] = m.box([0.65 * sign, 18.1, -1.5], [0.65 * sign, 18.1, -1.52], 0.08, highlight, eyeBone);
+      } else if (eyes === "stuck") {
+        const cheek = m.bone(`${p}頬`, [0.6 * sign, 17.8, -1.45], BONES.head);
+        eyeParts[`${p}iris`] = m.box(front, back, 0.3, eyeBone, cheek);
+        eyeParts[`${p}cheek`] = m.box([1 * sign, 17, -1.42], [1 * sign, 17, -1.5], 0.3, cheek);
+      } else if (eyes === "eyeball") eyeParts[`${p}iris`] = m.box([0.6 * sign, 18, -1.0], [0.6 * sign, 18, -1.6], 0.3, BONES.head);
+      else eyeParts[`${p}iris`] = m.box(front, back, 0.3, BONES.head);
+    }
+    if (eyes === "pupil") {
+      m.material({ name: "白目", ambient: [0.5, 0.5, 0.5], sharedToon: true, toonIndex: 0 });
+      for (const [sign, p] of [
+        [1, "左"],
+        [-1, "右"],
+      ]) {
+        eyeParts[`${p}white`] = m.box([0.6 * sign, 18, -1.41], [0.6 * sign, 18, -1.415], 0.7, BONES.head);
+        const brow = m.bone(`${p}眉`, [0.6 * sign, 19, -1.42], BONES.head);
+        eyeParts[`${p}brow`] = m.box([0.2 * sign, 19, -1.42], [1.1 * sign, 19.1, -1.42], 0.1, brow);
+        // Lashes on the lid that follow the gaze a little.
+        const lid = m.bone(`${p}まぶた`, [0.6 * sign, 18.35, -1.3], BONES.head);
+        const lash = m.box([0.6 * sign, 18.35, -1.43], [0.6 * sign, 18.35, -1.45], 0.25, lid);
+        for (const v of lash) Object.assign(m.vertices[v], { type: 1, bones: [lid, sign > 0 ? BONES.leftEye : BONES.rightEye, -1, -1], weights: [0.7, 0.3, 0, 0] });
+        eyeParts[`${p}lash`] = lash;
+      }
+    }
+  }
+  if (skirt) {
+    for (const [p, z] of [
+      ["前", -1],
+      ["後", 1],
+    ]) {
+      const top = m.bone(`スカート${p}1`, [0, 10, 1.2 * z], BONES.lowerBody);
+      const bottom = m.bone(`スカート${p}2`, [0, 7.5, 1.5 * z], top);
+      // Group 4 (index 3), hitting only the legs (group index 1).
+      m.body({ name: `スカート${p}1`, bone: top, group: 3, collisionMask: 1 << 1, shape: 2, size: [0.3, 2, 0], position: [0, 8.75, 1.35 * z], mode: 1 });
+      m.body({ name: `スカート${p}2`, bone: bottom, group: 3, collisionMask: 1 << 1, shape: 0, size: [0.3, 0, 0], position: [0, 7, 1.55 * z], mode: 1 });
+    }
+    const first = m.rigidBodies.length - 4;
+    m.joint({ name: "スカート前", bodyA: first, bodyB: first + 1 });
+    m.joint({ name: "スカート後", bodyA: first + 2, bodyB: first + 3 });
+    m.joint({ name: "スカート輪", bodyA: first, bodyB: first + 2 });
+  }
+  if (branch) {
+    m.body({ name: "髪3", bone: BONES.hair3, group: 2, collisionMask: hairMask, shape: 0, size: [0.3, 0, 0], position: [0, 13.5, 1.8], mass: 0.5, mode: 1 });
+    const side = m.bone("髪3b", [0.5, 14, 1.8], BONES.hair2);
+    m.body({ name: "髪3b", bone: side, group: 2, collisionMask: hairMask, shape: 0, size: [0.3, 0, 0], position: [0.6, 13.5, 1.8], mass: 0.5, mode: 1 });
+  }
+
   // One SDEF and one BDEF4 vertex to cover the other weight types.
   m.vertices[0].type = 3;
   m.vertices[0].bones = [2, 3, -1, -1];
@@ -437,7 +510,7 @@ export function syntheticHumanoid({ dBones = true } = {}) {
   m.vertices[1].bones = [2, 3, 2, -1];
   m.vertices[1].weights = [0.5, 0.3, 0.2, 0];
 
-  return { builder: m, model: m.build(), files: { "tex/body.bmp": bmp24(), "toon_body.bmp": toonBmp() }, headVertices };
+  return { builder: m, model: m.build(), files: { "tex/body.bmp": bmp24(), "toon_body.bmp": toonBmp() }, headVertices, eyeParts };
 }
 
 /** A 4×2 24-bit BMP, bottom-up: top row red, green, blue, white; bottom row dark grey. */
