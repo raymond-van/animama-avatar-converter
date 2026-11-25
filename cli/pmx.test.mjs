@@ -71,3 +71,16 @@ test("refuses Unity-only options and missing files", async () => {
   await assert.rejects(main([file, "--project", "."], { ...io, cwd: dir }), /--project is for Unity Avatars/);
   await assert.rejects(main(["missing.pmx"], { ...io, cwd: dir }), /does not exist/);
 });
+
+test("--expression chooses an expression's morphs; bad names are refused before reading, unknown morphs after", async () => {
+  const { dir, file } = await modelFolder();
+  const { lines, io } = capture();
+  assert.equal(await main([file, "--validate", "--expression", "happy=あ*0.5+まばたき", "--expression", "Fcl_BRW_Angry="], { ...io, cwd: dir }), 0);
+  const report = lines.join("\n");
+  assert.match(report, /happy: brows —, eyes まばたき, mouth あ×0\.5/);
+  assert.match(report, /angry: brows —,/);
+  await assert.rejects(main([file, "--validate", "--expression", "happy"], { ...io, cwd: dir }), /needs <name>=<morph>/);
+  await assert.rejects(main(["missing.pmx", "--expression", "joy=あ"], { ...io, cwd: dir }), /not a preset or part/, "before the file is even looked at");
+  await assert.rejects(main([file, "--validate", "--expression", "sad=泣く"], { ...io, cwd: dir }), /no face morph named "泣く"/);
+  await assert.rejects(main(["Avatar", "--expression", "happy=あ"], { ...io, cwd: dir }), /only for MMD models/);
+});

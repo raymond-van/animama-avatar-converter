@@ -168,13 +168,19 @@ function toonOf(ctx, material) {
  * @param {ToonRamp | null} toon
  */
 export function materialColors(material, toon) {
-  const base = [0, 1, 2].map((k) => clamp01(material.diffuse[k] * MMD_LIGHT + material.ambient[k]));
+  // A material morph's tints, which multiply the whole lit colour; 1 at rest. As in MMD, the
+  // texture tint needs a texture and the toon tint a toon.
+  const none = [1, 1, 1, 1];
+  const textureTint = material.textureIndex >= 0 ? (/** @type {{textureTint?: number[]}} */ (material).textureTint ?? none) : none;
+  const toonTint = toon ? (/** @type {{toonTint?: number[]}} */ (material).toonTint ?? none) : none;
+  const tint = [0, 1, 2].map((k) => clamp01(textureTint[k]) * clamp01(toonTint[k]));
+  const base = [0, 1, 2].map((k) => clamp01(material.diffuse[k] * MMD_LIGHT + material.ambient[k]) * tint[k]);
   const lit = base.map((v, k) => srgbToLinear(v * (toon ? toon.lit[k] / 255 : 1)));
   const shade = base.map((v, k) => srgbToLinear(v * (toon ? toon.shade[k] / 255 : 1)));
   const edged = (material.flags & MATERIAL_FLAGS.edge) !== 0 && material.edgeSize > 0 && material.edgeColor[3] > 0;
   return {
     lit,
-    alpha: clamp01(material.diffuse[3]),
+    alpha: clamp01(material.diffuse[3] * textureTint[3]),
     shade,
     outline: edged ? material.edgeColor.slice(0, 3).map(srgbToLinear) : null,
   };
@@ -188,11 +194,14 @@ export function materialColors(material, toon) {
  */
 
 /**
- * One glTF material per PMX material, in PMX order.
+ * One glTF material per PMX material, in PMX order. A material whose alpha a
+ * morph changes is drawn blended, so the change shows.
  * @param {import("./context.mjs").Context} ctx
+ * @param {Set<number>} [alphaAnimated] PMX materials whose alpha a morph changes.
+ * @param {Set<number>} [revealed] Of those, materials hidden at rest that morphs only ever show fully.
  * @returns {MaterialInfo[]}
  */
-export function buildMaterials(ctx) {
+export function buildMaterials(ctx, alphaAnimated = new Set(), revealed = new Set()) {
   const { model } = ctx;
   let blendCount = 0;
   let specular = 0;
@@ -202,12 +211,13 @@ export function buildMaterials(ctx) {
     const toon = toonOf(ctx, material);
     const colors = materialColors(material, toon);
 
+    const usage = () => (texture >= 0 ? ctx.textures[material.textureIndex].alpha() : "opaque");
     let alphaMode = "OPAQUE";
     if (colors.alpha < 0.999) alphaMode = "BLEND";
-    else if (texture >= 0) {
-      const usage = ctx.textures[material.textureIndex].alpha();
-      alphaMode = usage === "blend" ? "BLEND" : usage === "cutout" ? "MASK" : "OPAQUE";
-    }
+    else if (texture >= 0) alphaMode = usage() === "blend" ? "BLEND" : usage() === "cutout" ? "MASK" : "OPAQUE";
+    // A material a morph fades is blended so the fade shows. One hidden at rest that morphs
+    // only ever show fully is cut out instead (MASK at alpha 0), so it writes depth once shown.
+    if (alphaAnimated.has(index)) alphaMode = revealed.has(index) && usage() !== "blend" ? "MASK" : "BLEND";
 
     /** @type {Record<string, any>} */
     const pbr = { baseColorFactor: [...colors.lit, colors.alpha], metallicFactor: 0, roughnessFactor: 1 };

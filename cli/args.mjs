@@ -21,6 +21,11 @@ export const USAGE = [
   "                          or the model's)",
   "  --keep-pose             export the modelled pose instead of the T-pose",
   "  --validate              only validate and report; write no VRM",
+  "MMD only:",
+  "  --expression <name>=<morph>[*<weight>][+<morph>…]",
+  "                          choose the morphs an expression plays (a preset such",
+  "                          as happy or blinkLeft, or a part such as Fcl_EYE_Joy);",
+  "                          repeatable, and <name>= leaves it neutral",
   "Unity only:",
   "  --project <folder>      the Unity project (default: the current folder)",
   "  --unity <editor>        the Unity editor (default: the project's version from",
@@ -42,6 +47,8 @@ const VALUE_OPTIONS = [
   "package",
   "log",
 ];
+/** Value options that may be given more than once; their values are collected in order. */
+const REPEATABLE_OPTIONS = ["expression"];
 const FLAG_OPTIONS = ["keep-pose", "validate", "help"];
 
 export function parseArgs(argv) {
@@ -51,11 +58,12 @@ export function parseArgs(argv) {
     const argument = argv[index];
     const name = argument.startsWith("--") ? argument.slice(2) : null;
     if (name && FLAG_OPTIONS.includes(name)) seen.add(name);
-    else if (name && VALUE_OPTIONS.includes(name)) {
+    else if (name && (VALUE_OPTIONS.includes(name) || REPEATABLE_OPTIONS.includes(name))) {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("--"))
         throw new Error(`--${name} needs a value.\n\n${USAGE}`);
-      options[name] = value;
+      if (REPEATABLE_OPTIONS.includes(name)) options[name] = [...(options[name] ?? []), value];
+      else options[name] = value;
       index += 1;
     } else if (!name && options.prefab === undefined) {
       // The one positional argument is the prefab.

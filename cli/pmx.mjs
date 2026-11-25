@@ -1,6 +1,7 @@
 import { access, link, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ConversionError, convertPmx } from "../pmx/convert.mjs";
+import { parseExpressionOverride } from "../pmx/faces.mjs";
 import { PmxFormatError } from "../pmx/reader.mjs";
 import { formatReport } from "../pmx/report.mjs";
 
@@ -22,13 +23,14 @@ const exists = (file) =>
 /**
  * Convert a PMX model to a VRM beside it (or at --out). Needs no Unity.
  * Never overwrites a file, and leaves no partial file when it fails.
- * @param {{options: Record<string, string>, flags: {validate: boolean, keepPose: boolean}, cwd: string, version: string, log: (line: string) => void, error: (line: string) => void}} run
+ * @param {{options: Record<string, string> & {expression?: string[]}, flags: {validate: boolean, keepPose: boolean}, cwd: string, version: string, log: (line: string) => void, error: (line: string) => void}} run
  * @returns {Promise<number>} The exit status.
  */
 export async function convertPmxCommand({ options, flags, cwd, version, log, error }) {
   const unity = UNITY_ONLY_OPTIONS.filter((name) => options[name] !== undefined);
   if (unity.length > 0)
     throw new Error(`${unity.map((name) => `--${name}`).join(", ")} ${unity.length > 1 ? "are" : "is"} for Unity Avatars; an MMD model (.pmx) needs no Unity project.`);
+  const expressions = (options.expression ?? []).map(parseExpressionOverride);
   const input = path.resolve(cwd, options.prefab);
   if (!(await exists(input))) throw new Error(`${input} does not exist.`);
   const stem = path.basename(input, path.extname(input));
@@ -49,6 +51,7 @@ export async function convertPmxCommand({ options, flags, cwd, version, log, err
       copyright: options.copyright,
       keepPose: flags.keepPose,
       fallbackName: stem,
+      expressions,
     });
   } catch (failure) {
     if (failure instanceof PmxFormatError || failure instanceof ConversionError) {

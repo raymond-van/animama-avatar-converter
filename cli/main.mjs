@@ -154,6 +154,10 @@ export async function main(argv, io = {}) {
     );
     return convertPmxCommand({ options, flags, cwd, version, log, error });
   }
+  if (options.expression)
+    throw new Error(
+      "--expression is only for MMD models (.pmx).",
+    );
   log(
     "Convert only an Avatar whose licence allows you to convert it for your own use, and share the VRM only if the licence allows it.",
   );

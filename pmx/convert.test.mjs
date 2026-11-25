@@ -112,10 +112,11 @@ test("stands on y = 0, faces +Z, and scales 8 cm per MMD unit", async () => {
 test("keeps every vertex morph as a sparse, named morph target", async () => {
   const { json, report } = await convert();
   const mesh = json.meshes[0];
-  assert.deepEqual(mesh.extras.targetNames, ["あ", "まばたき", "ウィンク２", "ｳｨﾝｸ２右"]);
-  assert.equal(report.morphTargets, 4);
+  // Vertex morphs, then the group and bone morphs that move vertices; material and UV ones are not targets.
+  assert.deepEqual(mesh.extras.targetNames, ["あ", "まばたき", "ウィンク２", "ｳｨﾝｸ２右", "笑い", "首かしげ", "怒り"]);
+  assert.equal(report.morphTargets, 7);
   for (const primitive of mesh.primitives) {
-    assert.equal(primitive.targets.length, 4);
+    assert.equal(primitive.targets.length, 7);
     const accessor = json.accessors[primitive.targets[0].POSITION];
     assert.equal(accessor.bufferView, undefined);
     assert.ok(accessor.sparse.count > 0 && accessor.sparse.count < accessor.count);

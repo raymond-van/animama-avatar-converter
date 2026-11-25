@@ -2,7 +2,8 @@ import { REQUIRED_BONES, humanBoneOrder, mapHumanoid } from "./humanoid.mjs";
 import { ConversionError, MARKER_EXTENSION, createContext, drop, toGltf } from "./context.mjs";
 import { angleDegrees, fromTo, normalize, quatMultiply, quatNormalize, rotate, sub } from "./math.mjs";
 import { buildMaterials } from "./materials.mjs";
-import { buildMorphTargets } from "./morphs.mjs";
+import { buildExpressions } from "./expressions.mjs";
+import { buildMorphTargets, countDropped, planMorphs } from "./morphs.mjs";
 import { setupBodies } from "./physics.mjs";
 import { readPmx } from "./reader.mjs";
 import { uniqueName } from "./names.mjs";
@@ -57,10 +58,13 @@ export function convertPmx(bytes, options) {
   ground(ctx);
 
   ctx.textures = loadTextures(model.textures, options.baseDir);
-  const materials = buildMaterials(ctx);
-  const targets = buildMorphTargets(ctx);
+  const plan = planMorphs(ctx);
+  const materials = buildMaterials(ctx, plan.alphaAnimated, plan.revealed);
+  const targets = buildMorphTargets(ctx, plan);
+  countDropped(ctx, plan);
   const meshNode = ctx.boneCount + ctx.extraNodes.length;
   buildMesh(ctx, materials, targets);
+  buildExpressions(ctx, { plan, targets, materials, meshNode });
   buildNodes(ctx, meshNode);
   for (const texture of ctx.textures)
     if (texture.problem && ctx.usedTextures.has(texture)) ctx.report.missingTextures.push({ stored: texture.stored, problem: texture.problem });
