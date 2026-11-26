@@ -43,3 +43,11 @@ test("unknown options, a second positional argument and a bad --out are errors",
 test("--help", () => {
   assert.equal(parseArgs(["--help"]).flags.help, true);
 });
+
+test("--expression is repeatable and keeps its values in order", () => {
+  assert.deepEqual(
+    parseArgs(["m.pmx", "--expression", "happy=笑い", "--expression", "sad="]).options,
+    { prefab: "m.pmx", expression: ["happy=笑い", "sad="] },
+  );
+  assert.throws(() => parseArgs(["m.pmx", "--expression"]), /--expression needs a value/);
+});

@@ -1,7 +1,8 @@
 # Animama Avatar Converter
 
-Convert a VRChat Avatar you own into a VRM file for [Animama](https://animama.ai).
-Everything runs on your computer; nothing is uploaded.
+Convert a VRChat Avatar or a MikuMikuDance (MMD) model you own into a VRM file
+for [Animama](https://animama.ai). Everything runs on your computer; nothing is
+uploaded.
 
 > [!IMPORTANT]
 > Convert only an Avatar whose licence allows it, and share the VRM only if the
@@ -21,6 +22,8 @@ both produce the same VRM:
 After converting: [use the VRM in Animama](#use-the-vrm-in-animama) ·
 [what doesn't carry over](#what-doesnt-carry-over) ·
 [troubleshooting](#troubleshooting)
+
+Converting an MMD model (`.pmx`) needs no Unity: see [MMD models](#mmd-models).
 
 <details>
 <summary><h2>Windows</h2></summary>
@@ -203,20 +206,92 @@ Animama](#use-the-vrm-in-animama).
 
 </details>
 
+# MMD models
+
+MikuMikuDance models (`.pmx`) convert without Unity, from version 0.2.0 of the
+command. You need [Node.js][node] 22 or later. The older PMD format (`.pmd`)
+isn't supported: save the model as `.pmx` in PMX Editor first.
+
+1. Keep the model's folder as it came, so its textures are where the `.pmx`
+   expects them.
+2. In a terminal, run the command with the `.pmx` file:
+
+   ```bash
+   npx animama-avatar-converter path/to/model.pmx
+   ```
+
+   The VRM is saved beside the model as `model.vrm`. Use `--out` to save it
+   elsewhere and `--validate` to check the model without writing anything.
+
+3. [Use the VRM in Animama](#use-the-vrm-in-animama).
+
+The report lists what was converted and anything left out.
+
+What converts:
+
+- **Materials** become MToon with MMD's toon shading, outlines and `.spa`
+  matcaps.
+- **Face morphs** are all kept under their own names. MMD's standard faces
+  (まばたき, あいうえお, 笑い, 困る, 怒り …) and common English, Chinese and
+  Korean names become VRM's blink, vowels and moods, with the brows, eyes and
+  mouth composed separately. Group, bone and material morphs work too. When a
+  mood's brow, eye and mouth morphs each turn the same bones (ears that droop
+  with the brows and with the frown), the mood keeps the first one's turn, as
+  the report notes; VRM would add the turns and stretch the ears. The others
+  play through `<name> (no bones)` morph targets, which then appear among the
+  model's morphs. Parts you choose with `--expression` are kept as given.
+- **Physics** (rigid bodies) becomes springs on hair, skirts and accessories,
+  with colliders from the body.
+- **Eye look-at** comes from the eye bones (左目, 右目), or from the eye meshes
+  when the bones can't turn them.
+- The model is scaled to metres and stood in a T-pose.
+
+What doesn't carry over:
+
+- IK and other bones that only drive animation in MMD;
+- physics joints between neighbouring chains (skirts move chain by chain), and
+  PMX 2.1 soft bodies;
+- multiplicative (`.sph`) and sub-texture sphere maps, specular highlights,
+  outline transparency and per-vertex outline width;
+- SDEF skinning, which becomes ordinary skinning;
+- flip, impulse and uneven UV morphs, material morphs that brighten a texture,
+  and fades of the whole model at once;
+- eye look-at for eyes painted on the face.
+
+The report counts most of these, and says why a model gets no look-at.
+
+**Choosing the faces.** If a face looks wrong, pick its morphs yourself with
+`--expression`, once per face, then convert again:
+
+```bash
+npx animama-avatar-converter model.pmx --expression "sad=困る+口角下げ*0.6" --expression "Fcl_EYE_Joy=笑い"
+```
+
+- A name is a VRM preset (`aa`, `ih`, `ou`, `ee`, `oh`, `blink`, `blinkLeft`,
+  `blinkRight`, `happy`, `relaxed`, `sad`, `angry`, `surprised`), or one region
+  of a mood: `Fcl_<BRW|EYE|MTH>_<mood>` for the brows, eyes or mouth, where the
+  mood is `Joy` (happy), `Fun` (relaxed), `Sorrow`, `Angry` or `Surprised`.
+- Give a mood's preset or its regions, not both.
+- The morphs are the model's face morphs, by their names in the model;
+  material and UV morphs can't be chosen. A weight after `*` is between 0 and 1.
+- `sad=` leaves a mood still. A blink or vowel can't be left empty: Animama
+  would fill it from the model's standard morphs.
+
 # Reference
 
 ## Options
 
 These work the same on Windows and macOS.
 
-| Option                                           | What it does                                          |
-| ------------------------------------------------ | ----------------------------------------------------- |
-| `--out <file.vrm>`                               | Where to save the VRM                                 |
-| `--name`, `--version`, `--author`, `--copyright` | VRM details (the name defaults to the prefab's)       |
-| `--keep-pose`                                    | Keep the modelled pose instead of the T-pose          |
-| `--validate`                                     | Check that the Avatar can be converted; write no VRM  |
-| `--project <folder>`                             | Use another project folder instead of the current one |
-| `--unity <editor>`                               | Use a specific Unity editor                           |
+| Option                                           | What it does                                               |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| `--out <file.vrm>`                               | Where to save the VRM                                      |
+| `--name`, `--version`, `--author`, `--copyright` | VRM details (the name defaults to the prefab's or model's) |
+| `--keep-pose`                                    | Keep the modelled pose instead of the T-pose               |
+| `--validate`                                     | Check that it can be converted; write no VRM               |
+| `--expression <name>=<morph>[*<weight>][+…]`     | MMD models: choose the morphs a face plays                 |
+| `--project <folder>`                             | Unity: use another project folder                          |
+| `--unity <editor>`                               | Unity: use a specific Unity editor                         |
 
 The command never overwrites a file. Unity's log is saved beside the VRM as
 `<Avatar name>.export.log`. Run `npx animama-avatar-converter --help` for the
@@ -282,7 +357,9 @@ message lists why; the full log is in `<Avatar name>.export.log`.
 ## License
 
 MIT. Built on [Mochiya Avatar Tools](https://github.com/mochiya-labs/unity-avatar-tools)
-and [UniVRM](https://github.com/vrm-c/UniVRM), both MIT.
+and [UniVRM](https://github.com/vrm-c/UniVRM), both MIT. The MMD (PMX) converter
+is adapted from [pmx-to-vrm](https://github.com/GoldenCarrotMLP/pmx-to-vrm)
+(MIT; its notice is in `pmx/LICENSE-pmx-to-vrm`).
 
 [vcc]: https://vcc.docs.vrchat.com
 [vpm-cli]: https://vcc.docs.vrchat.com/vpm/cli/

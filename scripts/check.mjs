@@ -15,7 +15,8 @@ import {
  *   also match the tag and a released CHANGELOG heading;
  * - every dependency pin agrees: Requirements.cs's versions and URLs, the
  *   export assemblies' version defines and the command's manifest entries;
- * - the package and the command contain no network or upload code;
+ * - the package, the command and the PMX converter contain no network or
+ *   upload code;
  * - every package file and folder has a Unity .meta file;
  * - the Unity package manifest has the fields VPM listings need.
  *
@@ -157,11 +158,15 @@ const NETWORK_CODE = {
   ".mjs":
     /\bfetch\(|["'](node:)?(https?|http2|net|tls|dgram)["']|XMLHttpRequest|WebSocket/,
 };
+/** Every file under a folder of the repository. */
+const filesIn = (folder) =>
+  readdirSync(path.join(root, folder), { recursive: true })
+    .map((name) => path.join(root, folder, name))
+    .filter((file) => statSync(file).isFile());
 const sources = [
   ...packageFiles.filter((file) => file.endsWith(".cs")),
-  ...readdirSync(path.join(root, "cli")).map((name) =>
-    path.join(root, "cli", name),
-  ),
+  ...filesIn("cli"),
+  ...filesIn("pmx"),
 ];
 for (const file of sources) {
   const pattern = NETWORK_CODE[path.extname(file)];

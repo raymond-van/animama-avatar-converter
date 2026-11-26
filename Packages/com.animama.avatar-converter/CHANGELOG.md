@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0 (2026-11-26)
+
+- Convert a MikuMikuDance model (`.pmx`) to VRM 1.0 without Unity:
+  `npx animama-avatar-converter model.pmx`. Adapted from pmx-to-vrm (MIT).
+  - Materials become MToon with MMD's toon shading, outlines and `.spa`
+    matcaps.
+  - Every face morph is kept by name. MMD's standard faces and common English,
+    Chinese and Korean names become VRM's blink, vowels and five moods,
+    composed by brows, eyes and mouth. Group, bone and material morphs convert
+    too; a mood whose parts turn the same bones keeps one part's turn.
+  - Rigid-body physics becomes springs and colliders, and the eye bones (or eye
+    meshes) give look-at.
+  - `--expression` chooses the morphs a face plays.
+  - The VRM marks itself as converted (`ANIMAMA_avatar_conversion`), so an
+    Animama that knows the marker plays its springs as tuned.
+- The Unity package is unchanged; its version moves with the command's.
+
 ## 0.1.1 (2026-11-07)
 
 - Humanoid bones mapped to helper bones that move no part of the model, such
