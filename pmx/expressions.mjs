@@ -1,8 +1,8 @@
-import { MOOD_PRESETS, MOODS, OVERRIDABLE, REGIONS, composeFace, mergeBinds, regionOfName, regionOfPanel } from "./faces.mjs";
+import { MOOD_PRESETS, MOODS, OVERRIDABLE, REGIONS, composeFace, mergeBinds, regionOfName, regionOfPanel, unstackBones } from "./faces.mjs";
 import { materialColors } from "./materials.mjs";
 import { normalizeName, uniqueName } from "./names.mjs";
 import { uniformUvOffsets } from "./morphs.mjs";
-import { MORPH_TYPES } from "./reader.mjs";
+import { BONE_FLAGS, MORPH_TYPES } from "./reader.mjs";
 import { drop } from "./context.mjs";
 import { isDescendant } from "./humanoid.mjs";
 
@@ -23,15 +23,13 @@ export function buildExpressions(ctx, { plan, targets, materials, meshes }) {
   // A target on vertices no face draws is in no mesh: it plays nothing, so no face uses it.
   const shown = new Set(meshes.flatMap((mesh) => [...mesh.targets.keys()]));
   const faceMorphs = faceMorphsOf(ctx, plan, targets, shown);
-  const pmxFaceMorphs = faceMorphs.filter((morph) => !morph.notFace);
-  const { presets, parts, unstacked } = composeFace(pmxFaceMorphs, (warning) => report.warnings.push(warning), { bonesOverlap: bonesOverlapIn(ctx) });
+  const { presets, parts, unstacked } = composeAll(ctx, faceMorphs, (warning) => report.warnings.push(warning));
   if (unstacked.length > 0)
     report.notes.push(
-      `Moods whose parts turn the same bones keep one part's turn (brows, then eyes, then mouth), since VRM would add the turns and stretch what they carry; the others play without their bones: ${unstacked
-        .map(({ mood, morphs }) => `${MOOD_PRESETS[mood]} (${morphs.map((morph) => morph.name).join(", ")})`)
+      `Moods whose parts turn the same bones keep one part's turn (brows, then eyes, then mouth), since VRM would add the turns and stretch what they carry; the others play without their bones, or drop out when they move nothing else: ${unstacked
+        .map(({ mood, morphs }) => `${MOOD_PRESETS[mood]} (${morphs.map((morph) => (morph.dropped ? `${morph.name}, dropped` : morph.name)).join("; ")})`)
         .join(", ")}.`,
     );
-  applyOverrides(ctx.options.expressions ?? [], pmxFaceMorphs, presets, parts);
   for (const [name, target] of Object.entries(ctx.lookAtTargets ?? {})) presets[name] = [{ target, weight: 1 }];
 
   // A target is in every mesh whose vertices it moves, under that mesh's own index.
@@ -177,7 +175,24 @@ export function applyMaterialOffset(material, o, w) {
  * @param {Record<string, {target: number, weight: number}[]>} presets
  * @param {Record<string, {target: number, weight: number}[]>} parts
  */
+/**
+ * The presets and parts the face morphs compose (`composeFace`), with the
+ * user's overrides, then one bone turn kept per mood (`unstackBones`).
+ * @param {import("./context.mjs").Context} ctx
+ * @param {ReturnType<typeof faceMorphsOf>} faceMorphs One per target.
+ * @param {(warning: string) => void} warn
+ */
+function composeAll(ctx, faceMorphs, warn) {
+  const pmxFaceMorphs = faceMorphs.filter((morph) => !morph.notFace);
+  const { presets, parts } = composeFace(pmxFaceMorphs, warn);
+  const keep = applyOverrides(ctx.options.expressions ?? [], pmxFaceMorphs, presets, parts);
+  const unstacked = unstackBones(presets, parts, pmxFaceMorphs, bonesOverlapIn(ctx), keep);
+  return { presets, parts, unstacked };
+}
+
+/** @returns {Set<string>} The presets and parts the overrides set. */
 function applyOverrides(overrides, faceMorphs, presets, parts) {
+  const regionOf = new Map(faceMorphs.map((morph) => [morph.target, morph.region]));
   const chosen = new Map();
   for (const override of overrides) {
     if (!OVERRIDABLE.includes(override.name))
@@ -204,7 +219,7 @@ function applyOverrides(overrides, faceMorphs, presets, parts) {
       throw new Error(`--expression ${preset} and Fcl_${regions[0]}_${mood} both set the ${preset} face; give one or the other.`);
     if (chosen.has(preset)) {
       const binds = chosen.get(preset);
-      for (const region of REGIONS) parts[`Fcl_${region}_${mood}`] = binds.filter((b) => faceMorphs[b.target].region === region);
+      for (const region of REGIONS) parts[`Fcl_${region}_${mood}`] = binds.filter((b) => regionOf.get(b.target) === region);
       presets[preset] = binds;
       parts[`Fcl_ALL_${mood}`] = binds;
     } else if (regions.length > 0) {
@@ -215,6 +230,7 @@ function applyOverrides(overrides, faceMorphs, presets, parts) {
     }
   }
   for (const [name, binds] of chosen) if (!name.startsWith("Fcl_") && !Object.values(MOOD_PRESETS).includes(name)) presets[name] = binds;
+  return new Set(chosen.keys());
 }
 
 /**
@@ -231,21 +247,63 @@ function faceMorphsOf(ctx, plan, targets, shown) {
   const eyeY = eyeHeight(ctx);
   /** @type {Map<number, number>} Each PMX morph's bone-free copy, by target. */
   const copies = new Map(targets.flatMap((target, index) => (target.boneFreeOf === undefined ? [] : [[target.boneFreeOf, index]])));
-  return targets.map((target, index) => {
+  const followers = inheritingBones(ctx);
+  const morphs = targets.map((target, index) => {
     const key = normalizeName(target.name);
     if (target.source < 0 || !shown.has(index)) return { target: index, name: target.name, key, region: null, sideX: NaN, notFace: true };
-    const { x, y } = centroid(ctx, target);
-    const bones = [...new Set(plan.expanded[target.source].bone.filter((part) => part.weight !== 0 && part.bone >= 0 && part.bone < ctx.boneCount).map((part) => part.bone))];
+    const { x } = centroid(ctx, target);
+    const e = plan.expanded[target.source];
+    const bones = turnedBones(ctx, e, followers);
     const copy = copies.get(target.source);
+    // A copy that shows plays the morph without its bones; with no vertex part it drops out; with no copy written it stays.
+    const boneFree = copy !== undefined && shown.has(copy) ? copy : e.vertex.size === 0 ? null : undefined;
     return {
       target: index,
       name: target.name,
       key,
       region: WHOLE_FACE_NAME.test(target.name) ? "ALL" : (regionOfName(key) ?? regionOfPanel(ctx.model.morphs[target.source].panel) ?? regionOfSpread(ctx, target, eyeY)),
       sideX: x,
-      ...(bones.length > 0 ? { bones, boneFree: copy !== undefined && shown.has(copy) ? copy : null } : {}),
+      ...(bones.length > 0 ? { bones, boneFree } : {}),
     };
   });
+  // A copy is no face morph to compose from, but plays in its morph's region (an emotion's eyes blend the blink).
+  const byPmx = new Map(targets.flatMap((target, index) => (target.source >= 0 ? [[target.source, morphs[index]]] : [])));
+  return morphs.map((morph, index) => {
+    const of = targets[index].boneFreeOf;
+    return of === undefined || !byPmx.has(of) ? morph : { ...morph, region: /** @type {any} */ (byPmx.get(of)).region };
+  });
+}
+
+/**
+ * The bones a morph's bone parts turn or move (parts that do neither left
+ * out), with every bone that inherits (付与) their change, as the baking does.
+ * @param {import("./context.mjs").Context} ctx
+ * @param {import("./morphs.mjs").ExpandedMorph} e
+ * @param {Map<number, number[]>} followers
+ * @returns {number[]}
+ */
+function turnedBones(ctx, e, followers) {
+  const moves = ({ bone, translation, rotation, weight }) => {
+    if (weight === 0 || bone < 0 || bone >= ctx.boneCount) return false;
+    const length = Math.hypot(...rotation);
+    const turns = length > 0 && Math.abs(rotation[3] / length) < 1 - 1e-9;
+    return turns || Math.hypot(...translation) > 1e-9;
+  };
+  const found = new Set(e.bone.filter(moves).map((part) => part.bone));
+  for (const bone of found) for (const follower of followers.get(bone) ?? []) found.add(follower);
+  return [...found];
+}
+
+/** Per bone, the bones that inherit (付与) its rotation or move. @returns {Map<number, number[]>} */
+function inheritingBones(ctx) {
+  /** @type {Map<number, number[]>} */
+  const followers = new Map();
+  ctx.model.bones.forEach(({ flags, inheritParent: source, inheritWeight: w }, b) => {
+    if (b >= ctx.boneCount || !(flags & (BONE_FLAGS.inheritRotation | BONE_FLAGS.inheritTranslation))) return;
+    if (source < 0 || source >= ctx.boneCount || source === b || !Number.isFinite(w) || w === 0) return;
+    followers.set(source, [...(followers.get(source) ?? []), b]);
+  });
+  return followers;
 }
 
 /**
@@ -274,16 +332,28 @@ function bonesOverlapIn(ctx) {
  * @returns {number[]}
  */
 export function planBoneFreeCopies(ctx, plan, targets) {
-  const drawn = new Set(ctx.model.indices);
+  const drawn = drawnVertices(ctx);
   const shown = new Set(targets.flatMap((target, index) => (target.vertices.some((v) => drawn.has(v)) ? [index] : [])));
-  // Each morph that turns bones might be played through its copy.
-  const faceMorphs = faceMorphsOf(ctx, plan, targets, shown).map((morph) => (morph.bones ? { ...morph, boneFree: -1 } : morph));
-  const { unstacked } = composeFace(
-    faceMorphs.filter((morph) => !morph.notFace),
-    () => {},
-    { bonesOverlap: bonesOverlapIn(ctx) },
-  );
-  return unstacked.flatMap(({ morphs }) => morphs.map((morph) => targets[morph.target].source));
+  // Each morph with bones and vertices of its own might be played through its copy.
+  const faceMorphs = faceMorphsOf(ctx, plan, targets, shown).map((morph) => (morph.bones && morph.boneFree !== null ? { ...morph, boneFree: -1 } : morph));
+  const { unstacked } = composeAll(ctx, faceMorphs, () => {});
+  return unstacked.flatMap(({ morphs }) => morphs.filter((morph) => !morph.dropped).map((morph) => targets[morph.target].source));
+}
+
+/** The vertices the faces draw, as the meshes take them: every triangle in a material's index range that is not degenerate. */
+export function drawnVertices(ctx) {
+  const { model } = ctx;
+  const drawn = new Set();
+  let start = 0;
+  for (const material of model.materials) {
+    for (let f = start; f + 2 < start + material.indexCount; f += 3) {
+      const [a, b, c] = [model.indices[f], model.indices[f + 1], model.indices[f + 2]];
+      if (a === b || b === c || a === c) continue;
+      drawn.add(a).add(b).add(c);
+    }
+    start += material.indexCount;
+  }
+  return drawn;
 }
 
 /** The report's lines: each preset and part with the morphs it plays. */

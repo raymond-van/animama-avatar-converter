@@ -148,20 +148,11 @@ export function regionOfPanel(panel) {
 
 /**
  * Compose the presets and per-region parts from the model's face morphs.
- *
- * A mood's brow, eye and mouth morphs may each turn the same bones (an
- * animal-eared model droops its ears with its brows and with its frown). VRM
- * adds their baked turns, which swings the bone past both and stretches what
- * it carries, so with `bonesOverlap` a mood keeps the turns of its first part
- * that makes them (brows, then eyes, then mouth): a later part whose bones
- * overlap plays through its bone-free copy, or not at all when it has none.
- * The morphs keep their turns everywhere else.
  * @param {FaceMorph[]} morphs
  * @param {(warning: string) => void} warn
- * @param {{bonesOverlap?: (a: number[], b: number[]) => boolean}} [options]
- * @returns {{presets: Record<string, Bind[]>, parts: Record<string, Bind[]>, unstacked: {mood: Mood, morphs: FaceMorph[]}[]}}
+ * @returns {{presets: Record<string, Bind[]>, parts: Record<string, Bind[]>}}
  */
-export function composeFace(morphs, warn, { bonesOverlap } = {}) {
+export function composeFace(morphs, warn) {
   /** @type {Map<string, FaceMorph>} */
   const byKey = new Map();
   for (const morph of morphs) if (!byKey.has(morph.key)) byKey.set(morph.key, morph);
@@ -202,38 +193,15 @@ export function composeFace(morphs, warn, { bonesOverlap } = {}) {
 
   /** @type {Record<string, Bind[]>} */
   const parts = {};
-  /** @type {{mood: Mood, morphs: FaceMorph[]}[]} */
-  const unstacked = [];
-  const byTarget = new Map(morphs.map((morph) => [morph.target, morph]));
   for (const mood of MOODS) {
     /** @type {Bind[]} */
     const whole = [];
-    /** @type {number[][]} The bones the mood's earlier regions turn. */
-    const turned = [];
-    /** @type {FaceMorph[]} */
-    const stripped = [];
     for (const region of REGIONS) {
-      let binds = chooseRegion(mood, region, morphs, byKey);
-      if (bonesOverlap) {
-        /** @type {number[][]} */
-        const own = [];
-        binds = binds.flatMap((bind) => {
-          const morph = byTarget.get(bind.target);
-          if (!morph?.bones?.length) return [bind];
-          if (!turned.some((bones) => bonesOverlap(bones, /** @type {number[]} */ (morph.bones)))) {
-            own.push(morph.bones);
-            return [bind];
-          }
-          stripped.push(morph);
-          return morph.boneFree === null || morph.boneFree === undefined ? [] : [{ target: morph.boneFree, weight: bind.weight }];
-        });
-        turned.push(...own);
-      }
+      const binds = chooseRegion(mood, region, morphs, byKey);
       if (binds.length === 0) continue;
       parts[`Fcl_${region}_${mood}`] = binds;
       whole.push(...binds);
     }
-    if (stripped.length > 0) unstacked.push({ mood, morphs: stripped });
     // A model with VRoid's own whole-face morph (a PMX made from a VRoid model) keeps it,
     // as VRoid's preset does, rather than a sum of the parts that may differ from it.
     const own = byKey.get(normalizeName(`Fcl_ALL_${mood}`));
@@ -243,7 +211,72 @@ export function composeFace(morphs, warn, { bonesOverlap } = {}) {
       parts[`Fcl_ALL_${mood}`] = mergeBinds(whole);
     }
   }
-  return { presets, parts, unstacked };
+  return { presets, parts };
+}
+
+/**
+ * Keep one part's bone turns in each mood. A mood's brow, eye and mouth morphs
+ * may each turn the same bones (an animal-eared model droops its ears with its
+ * brows and with its frown). VRM adds their baked turns, which swings the bone
+ * past both and stretches what it carries, so a mood keeps the turns of its
+ * first part that makes them (brows, then eyes, then mouth). A later part
+ * whose bones overlap plays through its bone-free copy (`boneFree` a target),
+ * drops out when it moves no vertex of its own (`boneFree` null), and stays as
+ * it is when no copy was written (undefined). Parts the user chose (`keep`,
+ * from `--expression`) stay as given, and a mood whose preset the user chose
+ * is left alone. A mood that changes gets its preset and `Fcl_ALL_` part
+ * again from its regions, unless it plays the model's own `Fcl_ALL_` morph.
+ * The morphs keep their turns everywhere else.
+ * @param {Record<string, Bind[]>} presets Changed in place.
+ * @param {Record<string, Bind[]>} parts Changed in place.
+ * @param {FaceMorph[]} morphs
+ * @param {(a: number[], b: number[]) => boolean} bonesOverlap
+ * @param {Set<string>} keep Preset and part names the user chose.
+ * @returns {{mood: Mood, morphs: {name: string, target: number, dropped: boolean}[]}[]} Per mood, the parts played without their bones.
+ */
+export function unstackBones(presets, parts, morphs, bonesOverlap, keep) {
+  const byTarget = new Map(morphs.map((morph) => [morph.target, morph]));
+  const unstacked = [];
+  for (const mood of MOODS) {
+    if (keep.has(MOOD_PRESETS[mood])) continue;
+    /** @type {number[][]} The bones the mood's earlier regions turn. */
+    const turned = [];
+    /** @type {{name: string, target: number, dropped: boolean}[]} */
+    const changed = [];
+    for (const region of REGIONS) {
+      const name = `Fcl_${region}_${mood}`;
+      const binds = parts[name];
+      if (!binds) continue;
+      /** @type {number[][]} */
+      const own = [];
+      const kept = binds.flatMap((bind) => {
+        const morph = byTarget.get(bind.target);
+        if (!morph?.bones?.length) return [bind];
+        const bones = /** @type {number[]} */ (morph.bones);
+        if (keep.has(name) || !turned.some((earlier) => bonesOverlap(earlier, bones))) {
+          own.push(bones);
+          return [bind];
+        }
+        if (morph.boneFree === undefined) {
+          own.push(bones);
+          return [bind];
+        }
+        changed.push({ name: morph.name, target: morph.target, dropped: morph.boneFree === null });
+        return morph.boneFree === null ? [] : [{ target: morph.boneFree, weight: bind.weight }];
+      });
+      turned.push(...own);
+      if (kept.length > 0) parts[name] = kept;
+      else delete parts[name];
+    }
+    if (changed.length === 0) continue;
+    unstacked.push({ mood, morphs: changed });
+    const ownWhole = parts[`Fcl_ALL_${mood}`]?.length === 1 && byTarget.get(parts[`Fcl_ALL_${mood}`][0].target)?.key === normalizeName(`Fcl_ALL_${mood}`);
+    if (ownWhole) continue;
+    const whole = mergeBinds(REGIONS.flatMap((region) => parts[`Fcl_${region}_${mood}`] ?? []));
+    presets[MOOD_PRESETS[mood]] = whole;
+    parts[`Fcl_ALL_${mood}`] = whole;
+  }
+  return unstacked;
 }
 
 /**

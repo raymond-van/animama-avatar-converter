@@ -8,6 +8,7 @@ import { readGlb } from "./gltf.mjs";
 import { bindNames, targetOffsets } from "./testing/read-vrm.mjs";
 import { isDescendant } from "./humanoid.mjs";
 import { BONE_FLAGS, MORPH_TYPES } from "./reader.mjs";
+import { parseExpressionOverride } from "./faces.mjs";
 import { BONES, syntheticHumanoid, writeModelFolder } from "./testing/synthetic.mjs";
 
 async function convert(parts = syntheticHumanoid(), options = {}) {
@@ -333,23 +334,24 @@ test("warns when the morph targets would expand past what Animama accepts", asyn
 
 /**
  * Brow and mouth morphs that each also turn a bone with a bone morph, as an
- * animal-eared model droops its ears with its sad brows and its frown.
- * @returns {{parts: ReturnType<typeof syntheticHumanoid>, turnBone: (bone: number) => void}}
+ * animal-eared model droops its ears with its sad brows and its frown; with
+ * `eyes`, a じと目 eye morph that turns the mouth's bone too, and with
+ * `mouthShape` false a frown that only turns its bone.
+ * @returns {{parts: ReturnType<typeof syntheticHumanoid>}}
  */
-function stackedTurns({ browBone = BONES.hair1, mouthBone = BONES.hair1 } = {}) {
+function stackedTurns({ browBone = BONES.hair1, mouthBone = BONES.hair1, browAngle = 0.4, mouthShape = true, eyes = false } = {}) {
   const parts = syntheticHumanoid({ eyes: "bone" });
   const { morphs, positions } = parts.model;
   const at = (pick) => parts.headVertices.filter((v) => pick(positions[v * 3 + 1]));
   const add = (morph) => morphs.push(morph) - 1;
   const turn = (name, bone, angle) => add(pmxMorph(name, 4, MORPH_TYPES.bone, { bone: [{ bone, translation: [0, 0, 0], rotation: [Math.sin(angle / 2), 0, 0, Math.cos(angle / 2)] }] }));
   const shape = (name, panel, vertices) => add(pmxMorph(name, panel, MORPH_TYPES.vertex, { vertex: vertices.map((vertex) => ({ vertex, offset: [0, -0.1, 0] })) }));
-  const browShape = shape("困る眉", 1, at((y) => y > 19));
+  const group = (name, panel, members) => add(pmxMorph(name, panel, MORPH_TYPES.group, { group: members.map((morph) => ({ morph, weight: 1 })) }));
   // Turn morphs named without a mood word, so no region takes them as its own part.
-  const browTurn = turn("耳回し1", browBone, 0.4);
-  const mouthShape = shape("∧口", 3, at((y) => y < 17.5));
+  group("困る", 1, [shape("困る眉", 1, at((y) => y > 19)), turn("耳回し1", browBone, browAngle)]);
+  if (eyes) group("じと目", 2, [shape("じと目元", 2, at((y) => y > 19)), turn("耳回し3", mouthBone, 0.3)]);
   const mouthTurn = turn("耳回し2", mouthBone, 1.1);
-  add(pmxMorph("困る", 1, MORPH_TYPES.group, { group: [{ morph: browShape, weight: 1 }, { morph: browTurn, weight: 1 }] }));
-  add(pmxMorph("∧", 3, MORPH_TYPES.group, { group: [{ morph: mouthShape, weight: 1 }, { morph: mouthTurn, weight: 1 }] }));
+  group("∧", 3, mouthShape ? [shape("∧口", 3, at((y) => y < 17.5)), mouthTurn] : [mouthTurn]);
   return { parts };
 }
 
@@ -393,4 +395,56 @@ test("writes no bone-free copies for a model whose moods turn no bone twice", as
   const names = json.meshes.flatMap((mesh) => mesh.extras?.targetNames ?? []);
   assert.ok(!names.some((name) => name.endsWith("(no bones)")), names.join(", "));
   assert.ok(!report.notes.some((note) => /same bones/.test(note)));
+});
+
+test("an eye part played without its bones keeps its weight, and the mood still blends the blink", async () => {
+  const { json, report } = await convert(stackedTurns({ eyes: true }).parts);
+  const { preset, custom } = expressionsOf(json);
+  assert.deepEqual(bindNames(json, custom.Fcl_EYE_Sorrow), [["じと目 (no bones)", 0.5]]);
+  assert.deepEqual(namesOf(json, custom.Fcl_MTH_Sorrow), ["∧ (no bones)"]);
+  assert.equal(preset.sad.overrideBlink, "blend");
+  assert.ok(report.notes.some((note) => /sad \(じと目; ∧\)/.test(note)), report.notes.join("\n"));
+  // Copies are no face morphs: the count leaves them out.
+  const names = new Set(json.meshes.flatMap((mesh) => mesh.extras?.targetNames ?? []));
+  assert.ok(names.has("じと目 (no bones)"));
+  assert.equal(report.morphTargets, [...names].filter((name) => !name.endsWith("(no bones)")).length);
+});
+
+test("a part turns its bones only when it turns or moves them, and with the bones that inherit (付与) them", async () => {
+  // A turn by 0 turns nothing: the frown keeps its turn.
+  const still = await convert(stackedTurns({ browAngle: 0 }).parts);
+  assert.deepEqual(namesOf(still.json, expressionsOf(still.json).custom.Fcl_MTH_Sorrow), ["∧"]);
+  // A bone that follows the brows' bone (as 左目 follows 両目) turns with it.
+  const { parts } = stackedTurns();
+  const { bones } = parts.model;
+  const follower = bones.push({ ...bones[BONES.hair1], name: "耳従", nameEn: "", parent: BONES.head, flags: bones[BONES.hair1].flags | BONE_FLAGS.inheritRotation, inheritParent: BONES.hair1, inheritWeight: 1 }) - 1;
+  const frown = parts.model.morphs.findIndex((morph) => morph.name === "耳回し2");
+  parts.model.morphs[frown] = { ...parts.model.morphs[frown], bone: [{ ...parts.model.morphs[frown].bone[0], bone: follower }] };
+  const inherited = await convert(parts);
+  assert.deepEqual(namesOf(inherited.json, expressionsOf(inherited.json).custom.Fcl_MTH_Sorrow), ["∧ (no bones)"]);
+});
+
+test("a head turn overlaps only a head turn, and a later part with nothing but its turn drops out", async () => {
+  // The brows tilt the head and the frown turns a bone on it: both keep their turns.
+  const head = await convert(stackedTurns({ browBone: BONES.head }).parts);
+  assert.deepEqual(namesOf(head.json, expressionsOf(head.json).custom.Fcl_MTH_Sorrow), ["∧"]);
+  // A frown that only turns the brows' bone has nothing left to play.
+  const bare = await convert(stackedTurns({ mouthShape: false }).parts);
+  const { preset, custom } = expressionsOf(bare.json);
+  assert.equal(custom.Fcl_MTH_Sorrow, undefined);
+  assert.deepEqual(namesOf(bare.json, preset.sad), ["困る"]);
+  assert.ok(bare.report.notes.some((note) => /sad \(∧, dropped\)/.test(note)), bare.report.notes.join("\n"));
+  assert.ok(!(bare.json.meshes.flatMap((mesh) => mesh.extras?.targetNames ?? []).some((name) => name.endsWith("(no bones)"))));
+});
+
+test("--expression overrides are kept as given, and the other parts judged against them", async () => {
+  // Brows chosen without their turn: the frown keeps its own.
+  const brows = await convert(stackedTurns().parts, { expressions: [parseExpressionOverride("Fcl_BRW_Sorrow=困る眉")] });
+  assert.deepEqual(namesOf(brows.json, expressionsOf(brows.json).custom.Fcl_MTH_Sorrow), ["∧"]);
+  assert.ok(!brows.report.notes.some((note) => /same bones/.test(note)));
+  // A whole mood chosen: it plays as given, and no copy is written for it.
+  const whole = await convert(stackedTurns().parts, { expressions: [parseExpressionOverride("sad=困る+∧")] });
+  assert.deepEqual(namesOf(whole.json, expressionsOf(whole.json).preset.sad).sort(), ["∧", "困る"].sort());
+  assert.ok(!(whole.json.meshes.flatMap((mesh) => mesh.extras?.targetNames ?? []).some((name) => name.endsWith("(no bones)"))));
+  assert.ok(!whole.report.notes.some((note) => /same bones/.test(note)));
 });

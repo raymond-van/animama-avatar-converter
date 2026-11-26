@@ -526,10 +526,11 @@ function buildMeshes(ctx, materials, targets, firstNode) {
     meshes.push({ node: firstNode + meshes.length, mesh: g.meshes.length - 1, name, targets: own });
   }
   // A target on vertices no face draws is in no mesh: it shows nothing.
-  const shown = targets.filter((_, t) => meshes.some((mesh) => mesh.targets.has(t))).length;
-  drop(ctx, "morph targets that move only vertices no face uses", targets.length - shown);
-  // Bone-free copies are no face morphs of their own; the expressions list them.
-  ctx.report.morphTargets = shown - targets.filter((target, t) => target.boneFreeOf !== undefined && meshes.some((mesh) => mesh.targets.has(t))).length;
+  // Bone-free copies are no face morphs of their own: they are left out of both counts.
+  const faces = targets.filter((target) => target.boneFreeOf === undefined);
+  const shown = targets.filter((target, t) => target.boneFreeOf === undefined && meshes.some((mesh) => mesh.targets.has(t))).length;
+  drop(ctx, "morph targets that move only vertices no face uses", faces.length - shown);
+  ctx.report.morphTargets = shown;
   if (expanded > (ctx.options.morphExpansionLimit ?? MORPH_EXPANSION_LIMIT))
     ctx.report.warnings.push(
       `The morph targets expand to ${Math.round(expanded / 1024 / 1024)} MB in a viewer; Animama accepts at most 100 MB. A material with fewer vertices or fewer face morphs would fit.`,
