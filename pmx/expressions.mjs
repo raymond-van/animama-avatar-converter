@@ -165,17 +165,6 @@ export function applyMaterialOffset(material, o, w) {
 }
 
 /**
- * Replace presets' and region parts' binds with the user's choice. A mood keeps
- * VRoid's shape, where the preset, `Fcl_ALL_<Mood>` and the three region parts
- * agree: a region override recomposes its mood, and a mood override splits
- * into the regions by each morph's region. A neutral override writes an empty
- * expression rather than none, so an app does not fill it from the morph names.
- * @param {{name: string, morphs: {morph: string, weight: number}[]}[]} overrides
- * @param {{target: number, name: string, region: string | null}[]} faceMorphs
- * @param {Record<string, {target: number, weight: number}[]>} presets
- * @param {Record<string, {target: number, weight: number}[]>} parts
- */
-/**
  * The presets and parts the face morphs compose (`composeFace`), with the
  * user's overrides, then one bone turn kept per mood (`unstackBones`).
  * @param {import("./context.mjs").Context} ctx
@@ -190,7 +179,18 @@ function composeAll(ctx, faceMorphs, warn) {
   return { presets, parts, unstacked };
 }
 
-/** @returns {Set<string>} The presets and parts the overrides set. */
+/**
+ * Replace presets' and region parts' binds with the user's choice. A mood keeps
+ * VRoid's shape, where the preset, `Fcl_ALL_<Mood>` and the three region parts
+ * agree: a region override recomposes its mood, and a mood override splits
+ * into the regions by each morph's region. A neutral override writes an empty
+ * expression rather than none, so an app does not fill it from the morph names.
+ * @param {{name: string, morphs: {morph: string, weight: number}[]}[]} overrides
+ * @param {{target: number, name: string, region: string | null}[]} faceMorphs
+ * @param {Record<string, {target: number, weight: number}[]>} presets
+ * @param {Record<string, {target: number, weight: number}[]>} parts
+ * @returns {Set<string>} The presets and parts the overrides set.
+ */
 function applyOverrides(overrides, faceMorphs, presets, parts) {
   const regionOf = new Map(faceMorphs.map((morph) => [morph.target, morph.region]));
   const chosen = new Map();
@@ -279,29 +279,45 @@ function faceMorphsOf(ctx, plan, targets, shown) {
  * out), with every bone that inherits (付与) their change, as the baking does.
  * @param {import("./context.mjs").Context} ctx
  * @param {import("./morphs.mjs").ExpandedMorph} e
- * @param {Map<number, number[]>} followers
+ * @param {ReturnType<typeof inheritingBones>} followers
  * @returns {number[]}
  */
 function turnedBones(ctx, e, followers) {
-  const moves = ({ bone, translation, rotation, weight }) => {
-    if (weight === 0 || bone < 0 || bone >= ctx.boneCount) return false;
+  /** @type {Map<number, {turns: boolean, moves: boolean}>} */
+  const changes = new Map();
+  const add = (bone, turns, moves) => {
+    const was = changes.get(bone) ?? { turns: false, moves: false };
+    const now = { turns: was.turns || turns, moves: was.moves || moves };
+    if (now.turns === was.turns && now.moves === was.moves) return;
+    changes.set(bone, now);
+    // A follower inherits only the kind of change its flags take.
+    for (const { bone: follower, rotation, translation } of followers.get(bone) ?? []) {
+      if ((now.turns && rotation) || (now.moves && translation)) add(follower, now.turns && rotation, now.moves && translation);
+    }
+  };
+  for (const { bone, translation, rotation, weight } of e.bone) {
+    if (weight === 0 || bone < 0 || bone >= ctx.boneCount) continue;
     const length = Math.hypot(...rotation);
     const turns = length > 0 && Math.abs(rotation[3] / length) < 1 - 1e-9;
-    return turns || Math.hypot(...translation) > 1e-9;
-  };
-  const found = new Set(e.bone.filter(moves).map((part) => part.bone));
-  for (const bone of found) for (const follower of followers.get(bone) ?? []) found.add(follower);
-  return [...found];
+    const moves = Math.hypot(...translation) > 1e-9;
+    if (turns || moves) add(bone, turns, moves);
+  }
+  return [...changes.keys()];
 }
 
-/** Per bone, the bones that inherit (付与) its rotation or move. @returns {Map<number, number[]>} */
+/**
+ * Per bone, the bones that inherit (付与) its rotation or move, and which.
+ * @returns {Map<number, {bone: number, rotation: boolean, translation: boolean}[]>}
+ */
 function inheritingBones(ctx) {
-  /** @type {Map<number, number[]>} */
+  /** @type {Map<number, {bone: number, rotation: boolean, translation: boolean}[]>} */
   const followers = new Map();
   ctx.model.bones.forEach(({ flags, inheritParent: source, inheritWeight: w }, b) => {
-    if (b >= ctx.boneCount || !(flags & (BONE_FLAGS.inheritRotation | BONE_FLAGS.inheritTranslation))) return;
+    const rotation = Boolean(flags & BONE_FLAGS.inheritRotation);
+    const translation = Boolean(flags & BONE_FLAGS.inheritTranslation);
+    if (b >= ctx.boneCount || !(rotation || translation)) return;
     if (source < 0 || source >= ctx.boneCount || source === b || !Number.isFinite(w) || w === 0) return;
-    followers.set(source, [...(followers.get(source) ?? []), b]);
+    followers.set(source, [...(followers.get(source) ?? []), { bone: b, rotation, translation }]);
   });
   return followers;
 }

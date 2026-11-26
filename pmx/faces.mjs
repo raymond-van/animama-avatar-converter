@@ -251,7 +251,8 @@ export function unstackBones(presets, parts, morphs, bonesOverlap, keep) {
       const own = [];
       const kept = binds.flatMap((bind) => {
         const morph = byTarget.get(bind.target);
-        if (!morph?.bones?.length) return [bind];
+        // A bind at weight 0 (a user's `*0`) turns nothing.
+        if (!morph?.bones?.length || bind.weight <= 0) return [bind];
         const bones = /** @type {number[]} */ (morph.bones);
         if (keep.has(name) || !turned.some((earlier) => bonesOverlap(earlier, bones))) {
           own.push(bones);

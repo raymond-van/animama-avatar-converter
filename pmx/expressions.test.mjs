@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { convertPmx } from "./convert.mjs";
+import { drawnVertices } from "./expressions.mjs";
 import { readGlb } from "./gltf.mjs";
 import { bindNames, targetOffsets } from "./testing/read-vrm.mjs";
 import { isDescendant } from "./humanoid.mjs";
@@ -335,12 +336,20 @@ test("warns when the morph targets would expand past what Animama accepts", asyn
 /**
  * Brow and mouth morphs that each also turn a bone with a bone morph, as an
  * animal-eared model droops its ears with its sad brows and its frown; with
- * `eyes`, a じと目 eye morph that turns the mouth's bone too, and with
- * `mouthShape` false a frown that only turns its bone.
+ * `eyes`, a じと目 eye morph that turns the mouth's bone too, with
+ * `mouthShape` false a frown that only turns its bone, and with `hideBlink`
+ * a blink target that shows nothing ahead of the moods' targets.
  * @returns {{parts: ReturnType<typeof syntheticHumanoid>}}
  */
-function stackedTurns({ browBone = BONES.hair1, mouthBone = BONES.hair1, browAngle = 0.4, mouthShape = true, eyes = false } = {}) {
+function stackedTurns({ browBone = BONES.hair1, mouthBone = BONES.hair1, browAngle = 0.4, mouthShape = true, eyes = false, hideBlink = false } = {}) {
   const parts = syntheticHumanoid({ eyes: "bone" });
+  if (hideBlink) {
+    // まばたき moves only a vertex no face draws: its target shows nothing, ahead of the moods' targets.
+    const b = parts.builder;
+    const loose = b.vertices.push({ ...b.vertices[2], bones: [...b.vertices[2].bones], weights: [...b.vertices[2].weights] }) - 1;
+    b.morphs[1].vertex = [{ vertex: loose, offset: [0, -0.2, 0] }];
+    parts.model = b.build();
+  }
   const { morphs, positions } = parts.model;
   const at = (pick) => parts.headVertices.filter((v) => pick(positions[v * 3 + 1]));
   const add = (morph) => morphs.push(morph) - 1;
@@ -422,6 +431,10 @@ test("a part turns its bones only when it turns or moves them, and with the bone
   parts.model.morphs[frown] = { ...parts.model.morphs[frown], bone: [{ ...parts.model.morphs[frown].bone[0], bone: follower }] };
   const inherited = await convert(parts);
   assert.deepEqual(namesOf(inherited.json, expressionsOf(inherited.json).custom.Fcl_MTH_Sorrow), ["∧ (no bones)"]);
+  // A bone that inherits only moves follows no turn.
+  bones[follower] = { ...bones[follower], flags: bones[BONES.hair1].flags | BONE_FLAGS.inheritTranslation };
+  const movesOnly = await convert(parts);
+  assert.deepEqual(namesOf(movesOnly.json, expressionsOf(movesOnly.json).custom.Fcl_MTH_Sorrow), ["∧"]);
 });
 
 test("a head turn overlaps only a head turn, and a later part with nothing but its turn drops out", async () => {
@@ -442,9 +455,24 @@ test("--expression overrides are kept as given, and the other parts judged again
   const brows = await convert(stackedTurns().parts, { expressions: [parseExpressionOverride("Fcl_BRW_Sorrow=困る眉")] });
   assert.deepEqual(namesOf(brows.json, expressionsOf(brows.json).custom.Fcl_MTH_Sorrow), ["∧"]);
   assert.ok(!brows.report.notes.some((note) => /same bones/.test(note)));
+  // A part chosen at weight 0 turns nothing.
+  const zero = await convert(stackedTurns().parts, { expressions: [parseExpressionOverride("Fcl_BRW_Sorrow=困る*0")] });
+  assert.deepEqual(namesOf(zero.json, expressionsOf(zero.json).custom.Fcl_MTH_Sorrow), ["∧"]);
   // A whole mood chosen: it plays as given, and no copy is written for it.
   const whole = await convert(stackedTurns().parts, { expressions: [parseExpressionOverride("sad=困る+∧")] });
   assert.deepEqual(namesOf(whole.json, expressionsOf(whole.json).preset.sad).sort(), ["∧", "困る"].sort());
   assert.ok(!(whole.json.meshes.flatMap((mesh) => mesh.extras?.targetNames ?? []).some((name) => name.endsWith("(no bones)"))));
   assert.ok(!whole.report.notes.some((note) => /same bones/.test(note)));
+});
+
+test("a whole-mood override splits into regions by each morph's own region, past targets that show nothing", async () => {
+  const { json } = await convert(stackedTurns({ hideBlink: true }).parts, { expressions: [parseExpressionOverride("sad=困る+∧")] });
+  const { custom } = expressionsOf(json);
+  assert.deepEqual(namesOf(json, custom.Fcl_BRW_Sorrow), ["困る"]);
+  assert.deepEqual(namesOf(json, custom.Fcl_MTH_Sorrow), ["∧"]);
+});
+
+test("the faces draw the vertices of their triangles, not of degenerate ones", () => {
+  const model = { materials: [{ indexCount: 6 }, { indexCount: 3 }], indices: Uint32Array.of(0, 1, 2, 3, 3, 4, 5, 6, 7) };
+  assert.deepEqual([...drawnVertices(/** @type {any} */ ({ model }))].sort((a, b) => a - b), [0, 1, 2, 5, 6, 7]);
 });
