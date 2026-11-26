@@ -4,6 +4,7 @@ import { normalizeName, uniqueName } from "./names.mjs";
 import { uniformUvOffsets } from "./morphs.mjs";
 import { MORPH_TYPES } from "./reader.mjs";
 import { drop } from "./context.mjs";
+import { isDescendant } from "./humanoid.mjs";
 
 /**
  * The VRMC_vrm expressions: the presets and Animama's per-region parts
@@ -19,24 +20,17 @@ const PRESET_NAMES = new Set(["aa", "ih", "ou", "ee", "oh", "blink", "blinkLeft"
  */
 export function buildExpressions(ctx, { plan, targets, materials, meshes }) {
   const { model, report } = ctx;
-  const eyeY = eyeHeight(ctx);
   // A target on vertices no face draws is in no mesh: it plays nothing, so no face uses it.
   const shown = new Set(meshes.flatMap((mesh) => [...mesh.targets.keys()]));
-  const faceMorphs = targets.map((target, index) => {
-    const key = normalizeName(target.name);
-    // The look-at's own targets (no PMX morph) are not face morphs to compose from.
-    if (target.source < 0 || !shown.has(index)) return { target: index, name: target.name, key, region: null, sideX: NaN, notFace: true };
-    const { x, y } = centroid(ctx, target);
-    return {
-      target: index,
-      name: target.name,
-      key,
-      region: WHOLE_FACE_NAME.test(target.name) ? "ALL" : (regionOfName(key) ?? regionOfPanel(model.morphs[target.source].panel) ?? regionOfSpread(ctx, target, eyeY)),
-      sideX: x,
-    };
-  });
+  const faceMorphs = faceMorphsOf(ctx, plan, targets, shown);
   const pmxFaceMorphs = faceMorphs.filter((morph) => !morph.notFace);
-  const { presets, parts } = composeFace(pmxFaceMorphs, (warning) => report.warnings.push(warning));
+  const { presets, parts, unstacked } = composeFace(pmxFaceMorphs, (warning) => report.warnings.push(warning), { bonesOverlap: bonesOverlapIn(ctx) });
+  if (unstacked.length > 0)
+    report.notes.push(
+      `Moods whose parts turn the same bones keep one part's turn (brows, then eyes, then mouth), since VRM would add the turns and stretch what they carry; the others play without their bones: ${unstacked
+        .map(({ mood, morphs }) => `${MOOD_PRESETS[mood]} (${morphs.map((morph) => morph.name).join(", ")})`)
+        .join(", ")}.`,
+    );
   applyOverrides(ctx.options.expressions ?? [], pmxFaceMorphs, presets, parts);
   for (const [name, target] of Object.entries(ctx.lookAtTargets ?? {})) presets[name] = [{ target, weight: 1 }];
 
@@ -221,6 +215,75 @@ function applyOverrides(overrides, faceMorphs, presets, parts) {
     }
   }
   for (const [name, binds] of chosen) if (!name.startsWith("Fcl_") && !Object.values(MOOD_PRESETS).includes(name)) presets[name] = binds;
+}
+
+/**
+ * The face morphs to compose from: one per target, with its region, side and
+ * the bones its PMX morph turns. Targets in `shown` are drawn by some face;
+ * the others, and targets no PMX morph names (look-at, bone-free copies), are
+ * `notFace`.
+ * @param {import("./context.mjs").Context} ctx
+ * @param {import("./morphs.mjs").MorphPlan} plan
+ * @param {import("./morphs.mjs").MorphTarget[]} targets
+ * @param {Set<number>} shown
+ */
+function faceMorphsOf(ctx, plan, targets, shown) {
+  const eyeY = eyeHeight(ctx);
+  /** @type {Map<number, number>} Each PMX morph's bone-free copy, by target. */
+  const copies = new Map(targets.flatMap((target, index) => (target.boneFreeOf === undefined ? [] : [[target.boneFreeOf, index]])));
+  return targets.map((target, index) => {
+    const key = normalizeName(target.name);
+    if (target.source < 0 || !shown.has(index)) return { target: index, name: target.name, key, region: null, sideX: NaN, notFace: true };
+    const { x, y } = centroid(ctx, target);
+    const bones = [...new Set(plan.expanded[target.source].bone.filter((part) => part.weight !== 0 && part.bone >= 0 && part.bone < ctx.boneCount).map((part) => part.bone))];
+    const copy = copies.get(target.source);
+    return {
+      target: index,
+      name: target.name,
+      key,
+      region: WHOLE_FACE_NAME.test(target.name) ? "ALL" : (regionOfName(key) ?? regionOfPanel(ctx.model.morphs[target.source].panel) ?? regionOfSpread(ctx, target, eyeY)),
+      sideX: x,
+      ...(bones.length > 0 ? { bones, boneFree: copy !== undefined && shown.has(copy) ? copy : null } : {}),
+    };
+  });
+}
+
+/**
+ * Whether two morphs' bone turns would stack: they turn a bone in common, or
+ * one turns a bone below the head that carries the other's (an ear's root and
+ * its tip). A turn of the head or a bone above it carries the whole face, so
+ * it overlaps only the same bone.
+ * @param {import("./context.mjs").Context} ctx
+ * @returns {(a: number[], b: number[]) => boolean}
+ */
+function bonesOverlapIn(ctx) {
+  const head = ctx.human.get("head");
+  const carriesFace = (bone) => head !== undefined && (bone === head || isDescendant(ctx.parent, head, bone));
+  const carries = (upper, lower) => !carriesFace(upper) && isDescendant(ctx.parent, lower, upper);
+  return (a, b) => a.some((x) => b.some((y) => x === y || carries(x, y) || carries(y, x)));
+}
+
+/**
+ * The PMX morphs whose bone-free copies the composed moods will play
+ * (`composeFace`), before the meshes are built: copies are written only where
+ * a mood needs one. Whether a target shows is judged from the faces' vertices,
+ * as the meshes will.
+ * @param {import("./context.mjs").Context} ctx
+ * @param {import("./morphs.mjs").MorphPlan} plan
+ * @param {import("./morphs.mjs").MorphTarget[]} targets
+ * @returns {number[]}
+ */
+export function planBoneFreeCopies(ctx, plan, targets) {
+  const drawn = new Set(ctx.model.indices);
+  const shown = new Set(targets.flatMap((target, index) => (target.vertices.some((v) => drawn.has(v)) ? [index] : [])));
+  // Each morph that turns bones might be played through its copy.
+  const faceMorphs = faceMorphsOf(ctx, plan, targets, shown).map((morph) => (morph.bones ? { ...morph, boneFree: -1 } : morph));
+  const { unstacked } = composeFace(
+    faceMorphs.filter((morph) => !morph.notFace),
+    () => {},
+    { bonesOverlap: bonesOverlapIn(ctx) },
+  );
+  return unstacked.flatMap(({ morphs }) => morphs.map((morph) => targets[morph.target].source));
 }
 
 /** The report's lines: each preset and part with the morphs it plays. */

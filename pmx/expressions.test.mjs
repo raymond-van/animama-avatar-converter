@@ -330,3 +330,67 @@ test("warns when the morph targets would expand past what Animama accepts", asyn
   const { report } = await convert(undefined, { morphExpansionLimit: 1000 });
   assert.ok(report.warnings.some((w) => /^The morph targets expand to \d+ MB in a viewer; Animama accepts at most 100 MB/.test(w)), report.warnings.join("\n"));
 });
+
+/**
+ * Brow and mouth morphs that each also turn a bone with a bone morph, as an
+ * animal-eared model droops its ears with its sad brows and its frown.
+ * @returns {{parts: ReturnType<typeof syntheticHumanoid>, turnBone: (bone: number) => void}}
+ */
+function stackedTurns({ browBone = BONES.hair1, mouthBone = BONES.hair1 } = {}) {
+  const parts = syntheticHumanoid({ eyes: "bone" });
+  const { morphs, positions } = parts.model;
+  const at = (pick) => parts.headVertices.filter((v) => pick(positions[v * 3 + 1]));
+  const add = (morph) => morphs.push(morph) - 1;
+  const turn = (name, bone, angle) => add(pmxMorph(name, 4, MORPH_TYPES.bone, { bone: [{ bone, translation: [0, 0, 0], rotation: [Math.sin(angle / 2), 0, 0, Math.cos(angle / 2)] }] }));
+  const shape = (name, panel, vertices) => add(pmxMorph(name, panel, MORPH_TYPES.vertex, { vertex: vertices.map((vertex) => ({ vertex, offset: [0, -0.1, 0] })) }));
+  const browShape = shape("困る眉", 1, at((y) => y > 19));
+  // Turn morphs named without a mood word, so no region takes them as its own part.
+  const browTurn = turn("耳回し1", browBone, 0.4);
+  const mouthShape = shape("∧口", 3, at((y) => y < 17.5));
+  const mouthTurn = turn("耳回し2", mouthBone, 1.1);
+  add(pmxMorph("困る", 1, MORPH_TYPES.group, { group: [{ morph: browShape, weight: 1 }, { morph: browTurn, weight: 1 }] }));
+  add(pmxMorph("∧", 3, MORPH_TYPES.group, { group: [{ morph: mouthShape, weight: 1 }, { morph: mouthTurn, weight: 1 }] }));
+  return { parts };
+}
+
+const namesOf = (json, expression) => bindNames(json, expression).map(([name]) => name);
+
+test("a mood whose parts turn the same bones keeps one part's turn: the brows', then the eyes', then the mouth's", async () => {
+  const { parts } = stackedTurns();
+  const { json, bin, model, report } = await convert(parts);
+  const { preset, custom } = expressionsOf(json);
+  // VRM adds the baked turns, which would swing the ear past both turns and stretch it.
+  assert.deepEqual(namesOf(json, custom.Fcl_BRW_Sorrow), ["困る"]);
+  assert.deepEqual(namesOf(json, custom.Fcl_MTH_Sorrow), ["∧ (no bones)"]);
+  for (const whole of [preset.sad, custom.Fcl_ALL_Sorrow]) assert.deepEqual(namesOf(json, whole).sort(), ["∧ (no bones)", "困る"].sort());
+  // The copy moves the mouth as ∧ does, and nothing its bones move.
+  const copy = targetOffsets(json, bin, model, "∧ (no bones)");
+  const mouth = targetOffsets(json, bin, model, "∧口");
+  assert.ok(mouth.size > 0);
+  assert.deepEqual([...copy.keys()], [...mouth.keys()]);
+  for (const [v, offset] of mouth) assert.ok(offset.every((value, k) => Math.abs(value - copy.get(v)[k]) < 1e-6), `vertex ${v}`);
+  assert.ok(targetOffsets(json, bin, model, "∧").size > copy.size, "∧ itself still turns the bone");
+  // ∧ on its own, and a mood where nothing else turns that bone, keep the turn.
+  assert.deepEqual(namesOf(json, custom["∧"]), ["∧"]);
+  assert.deepEqual(namesOf(json, custom.Fcl_MTH_Angry), ["∧"]);
+  assert.ok(report.notes.some((note) => /same bones/.test(note) && /sad \(∧\)/.test(note)), report.notes.join("\n"));
+  assert.ok(report.expressions.some((line) => line.name === "sad" && /mouth ∧ \(no bones\)/.test(line.binds[0])));
+  // The copy is no face morph of its own: the count and the custom expressions leave it out.
+  assert.equal(custom["∧ (no bones)"], undefined);
+});
+
+test("parts that turn different bones, or a bone and a bone below it, are judged by the bones they share", async () => {
+  // Different bones beside each other under the head: both turns stay.
+  const apart = await convert(stackedTurns({ browBone: BONES.hair1, mouthBone: BONES.leftEye }).parts);
+  assert.deepEqual(namesOf(apart.json, expressionsOf(apart.json).custom.Fcl_MTH_Sorrow), ["∧"]);
+  // A bone and one below it in the same chain (an ear's root and its tip): one turn.
+  const chain = await convert(stackedTurns({ browBone: BONES.hair1, mouthBone: BONES.hair2 }).parts);
+  assert.deepEqual(namesOf(chain.json, expressionsOf(chain.json).custom.Fcl_MTH_Sorrow), ["∧ (no bones)"]);
+});
+
+test("writes no bone-free copies for a model whose moods turn no bone twice", async () => {
+  const { json, report } = await convert();
+  const names = json.meshes.flatMap((mesh) => mesh.extras?.targetNames ?? []);
+  assert.ok(!names.some((name) => name.endsWith("(no bones)")), names.join(", "));
+  assert.ok(!report.notes.some((note) => /same bones/.test(note)));
+});

@@ -24,7 +24,8 @@ import { BONE_FLAGS, MORPH_TYPES } from "./reader.mjs";
  *
  * @typedef {object} MorphTarget
  * @property {string} name Unique among the mesh's targets.
- * @property {number} source The PMX morph index.
+ * @property {number} source The PMX morph index, or -1 for a target no PMX morph names (look-at, bone-free copies).
+ * @property {number} [boneFreeOf] For a bone-free copy: the PMX morph whose vertex movement alone it holds.
  * @property {Uint32Array} vertices Strictly increasing vertex indices it moves.
  * @property {Float32Array} offsets xyz offset (glTF space) per listed vertex.
  *
@@ -153,18 +154,50 @@ export function buildMorphTargets(ctx, plan) {
   const targets = [];
   ctx.model.morphs.forEach((morph, index) => {
     const e = plan.expanded[index];
-    /** @type {Map<number, Vec3>} glTF-space offsets per vertex */
-    const offsets = new Map();
-    for (const [vertex, o] of e.vertex) offsets.set(vertex, bakeDelta(ctx, vertex, [o[0] * ctx.unit, o[1] * ctx.unit, -o[2] * ctx.unit]));
+    const offsets = vertexOffsets(ctx, e);
     if (e.bone.length > 0) addBoneOffsets(ctx, e.bone, offsets);
-    const entries = [...offsets].filter(([, o]) => o[0] !== 0 || o[1] !== 0 || o[2] !== 0).sort((a, b) => a[0] - b[0]);
-    if (entries.length === 0) return;
-    const vertices = Uint32Array.from(entries, ([vertex]) => vertex);
-    const values = new Float32Array(entries.length * 3);
-    entries.forEach(([, o], i) => values.set(o, i * 3));
-    targets.push({ name: uniqueName(morph.name || morph.nameEn || `morph${index}`, used), source: index, vertices, offsets: values });
+    const packed = pack(offsets);
+    if (packed) targets.push({ name: uniqueName(morph.name || morph.nameEn || `morph${index}`, used), source: index, ...packed });
   });
   return targets;
+}
+
+/**
+ * Append a bone-free copy of each of `sources` (PMX morph indices): the
+ * morph's vertex movement without its bone parts, named "<name> (no bones)".
+ * A mood whose parts turn the same bones plays the later parts through
+ * these, since VRM adds the baked turns (see `composeFace`). A morph without
+ * vertex movement gets none.
+ * @param {import("./context.mjs").Context} ctx
+ * @param {MorphPlan} plan
+ * @param {MorphTarget[]} targets Appended to.
+ * @param {Iterable<number>} sources
+ */
+export function addBoneFreeCopies(ctx, plan, targets, sources) {
+  const used = new Set(targets.map((target) => target.name));
+  for (const index of [...new Set(sources)].sort((a, b) => a - b)) {
+    const packed = pack(vertexOffsets(ctx, plan.expanded[index]));
+    const morph = ctx.model.morphs[index];
+    if (packed) targets.push({ name: uniqueName(`${morph.name || morph.nameEn || `morph${index}`} (no bones)`, used), source: -1, boneFreeOf: index, ...packed });
+  }
+}
+
+/** A morph's vertex parts as glTF-space offsets per vertex. @returns {Map<number, Vec3>} */
+function vertexOffsets(ctx, e) {
+  /** @type {Map<number, Vec3>} */
+  const offsets = new Map();
+  for (const [vertex, o] of e.vertex) offsets.set(vertex, bakeDelta(ctx, vertex, [o[0] * ctx.unit, o[1] * ctx.unit, -o[2] * ctx.unit]));
+  return offsets;
+}
+
+/** The vertices that move and their offsets, in vertex order; null when none move. @param {Map<number, Vec3>} offsets */
+function pack(offsets) {
+  const entries = [...offsets].filter(([, o]) => o[0] !== 0 || o[1] !== 0 || o[2] !== 0).sort((a, b) => a[0] - b[0]);
+  if (entries.length === 0) return null;
+  const vertices = Uint32Array.from(entries, ([vertex]) => vertex);
+  const offsetsOut = new Float32Array(entries.length * 3);
+  entries.forEach(([, o], i) => offsetsOut.set(o, i * 3));
+  return { vertices, offsets: offsetsOut };
 }
 
 /**

@@ -9,7 +9,7 @@
   - Every face morph is kept by name. MMD's standard faces and common English,
     Chinese and Korean names become VRM's blink, vowels and five moods,
     composed by brows, eyes and mouth. Group, bone and material morphs convert
-    too.
+    too; a mood whose parts turn the same bones keeps one part's turn.
   - Rigid-body physics becomes springs and colliders, and the eye bones (or eye
     meshes) give look-at.
   - `--expression` chooses the morphs a face plays.

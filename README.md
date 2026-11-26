@@ -234,7 +234,10 @@ What converts:
 - **Face morphs** are all kept under their own names. MMD's standard faces
   (まばたき, あいうえお, 笑い, 困る, 怒り …) and common English, Chinese and
   Korean names become VRM's blink, vowels and moods, with the brows, eyes and
-  mouth composed separately. Group, bone and material morphs work too.
+  mouth composed separately. Group, bone and material morphs work too. When a
+  mood's brow, eye and mouth morphs each turn the same bones (ears that droop
+  with the brows and with the frown), the mood keeps the first one's turn, as
+  the report notes; VRM would add the turns and stretch the ears.
 - **Physics** (rigid bodies) becomes springs on hair, skirts and accessories,
   with colliders from the body.
 - **Eye look-at** comes from the eye bones (左目, 右目), or from the eye meshes

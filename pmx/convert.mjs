@@ -2,8 +2,8 @@ import { REQUIRED_BONES, humanBoneOrder, mapHumanoid } from "./humanoid.mjs";
 import { ConversionError, MARKER_EXTENSION, createContext, drop, toGltf } from "./context.mjs";
 import { angleDegrees, fromTo, normalize, quatMultiply, quatNormalize, rotate, sub } from "./math.mjs";
 import { buildMaterials, edgelessVariant } from "./materials.mjs";
-import { buildExpressions } from "./expressions.mjs";
-import { buildMorphTargets, countDropped, planMorphs } from "./morphs.mjs";
+import { buildExpressions, planBoneFreeCopies } from "./expressions.mjs";
+import { addBoneFreeCopies, buildMorphTargets, countDropped, planMorphs } from "./morphs.mjs";
 import { buildLookAt, planLookAt } from "./lookat.mjs";
 import { buildSprings, setupBodies } from "./physics.mjs";
 import { followIkChains } from "./rig.mjs";
@@ -75,6 +75,8 @@ export function convertPmx(bytes, options) {
   const plan = planMorphs(ctx);
   const materials = buildMaterials(ctx, plan.alphaAnimated, plan.revealed);
   const targets = buildMorphTargets(ctx, plan);
+  // Copies without bone parts for moods whose parts turn the same bones (see composeFace).
+  addBoneFreeCopies(ctx, plan, targets, planBoneFreeCopies(ctx, plan, targets));
   buildLookAt(ctx, lookAt, targets);
   countDropped(ctx, plan);
   const meshes = buildMeshes(ctx, materials, targets, ctx.boneCount + ctx.extraNodes.length);
@@ -526,7 +528,8 @@ function buildMeshes(ctx, materials, targets, firstNode) {
   // A target on vertices no face draws is in no mesh: it shows nothing.
   const shown = targets.filter((_, t) => meshes.some((mesh) => mesh.targets.has(t))).length;
   drop(ctx, "morph targets that move only vertices no face uses", targets.length - shown);
-  ctx.report.morphTargets = shown;
+  // Bone-free copies are no face morphs of their own; the expressions list them.
+  ctx.report.morphTargets = shown - targets.filter((target, t) => target.boneFreeOf !== undefined && meshes.some((mesh) => mesh.targets.has(t))).length;
   if (expanded > (ctx.options.morphExpansionLimit ?? MORPH_EXPANSION_LIMIT))
     ctx.report.warnings.push(
       `The morph targets expand to ${Math.round(expanded / 1024 / 1024)} MB in a viewer; Animama accepts at most 100 MB. A material with fewer vertices or fewer face morphs would fit.`,
