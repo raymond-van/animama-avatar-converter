@@ -1,5 +1,6 @@
 import { length, rotate, sub } from "./math.mjs";
 import { uniqueName } from "./names.mjs";
+import { reparent } from "./rig.mjs";
 
 /**
  * Look-at (R7), tried in order:
@@ -363,20 +364,4 @@ function materialParts(ctx, mesh, head) {
     const ball = b.max[2] - b.min[2] >= 0.5 * width;
     return { side, eye: -1, vertices: sides[side], pivot: [centre[0], centre[1], ball ? centre[2] : b.max[2] - width] };
   });
-}
-
-/**
- * Move a bone under another, keeping where it is: bone nodes carry only
- * translations, written from the bones' positions, so only the hierarchy changes.
- */
-function reparent(ctx, bone, parent) {
-  const old = ctx.parent[bone];
-  if (old === parent) return;
-  if (old >= 0) ctx.children[old] = ctx.children[old].filter((c) => c !== bone);
-  ctx.parent[bone] = parent;
-  ctx.children[parent].push(bone);
-  const queue = [];
-  for (let i = 0; i < ctx.boneCount; i++) if (ctx.parent[i] < 0) queue.push(i);
-  for (let h = 0; h < queue.length; h++) queue.push(...ctx.children[queue[h]]);
-  ctx.order = queue;
 }

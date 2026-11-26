@@ -15,15 +15,17 @@ const PRESET_NAMES = new Set(["aa", "ih", "ou", "ee", "oh", "blink", "blinkLeft"
 
 /**
  * @param {import("./context.mjs").Context} ctx
- * @param {{plan: import("./morphs.mjs").MorphPlan, targets: import("./morphs.mjs").MorphTarget[], materials: import("./materials.mjs").MaterialInfo[], meshNode: number}} parts
+ * @param {{plan: import("./morphs.mjs").MorphPlan, targets: import("./morphs.mjs").MorphTarget[], materials: import("./materials.mjs").MaterialInfo[], meshes: {node: number, targets: Map<number, number>}[]}} parts
  */
-export function buildExpressions(ctx, { plan, targets, materials, meshNode }) {
+export function buildExpressions(ctx, { plan, targets, materials, meshes }) {
   const { model, report } = ctx;
   const eyeY = eyeHeight(ctx);
+  // A target on vertices no face draws is in no mesh: it plays nothing, so no face uses it.
+  const shown = new Set(meshes.flatMap((mesh) => [...mesh.targets.keys()]));
   const faceMorphs = targets.map((target, index) => {
     const key = normalizeName(target.name);
     // The look-at's own targets (no PMX morph) are not face morphs to compose from.
-    if (target.source < 0) return { target: index, name: target.name, key, region: null, sideX: NaN, lookAt: true };
+    if (target.source < 0 || !shown.has(index)) return { target: index, name: target.name, key, region: null, sideX: NaN, notFace: true };
     const { x, y } = centroid(ctx, target);
     return {
       target: index,
@@ -33,14 +35,16 @@ export function buildExpressions(ctx, { plan, targets, materials, meshNode }) {
       sideX: x,
     };
   });
-  const pmxFaceMorphs = faceMorphs.filter((morph) => !morph.lookAt);
+  const pmxFaceMorphs = faceMorphs.filter((morph) => !morph.notFace);
   const { presets, parts } = composeFace(pmxFaceMorphs, (warning) => report.warnings.push(warning));
   applyOverrides(ctx.options.expressions ?? [], pmxFaceMorphs, presets, parts);
   for (const [name, target] of Object.entries(ctx.lookAtTargets ?? {})) presets[name] = [{ target, weight: 1 }];
 
-  const bind = ({ target, weight }) => ({ node: meshNode, index: target, weight });
+  // A target is in every mesh whose vertices it moves, under that mesh's own index.
+  const bind = ({ target, weight }) =>
+    meshes.flatMap((mesh) => (mesh.targets.has(target) ? [{ node: mesh.node, index: /** @type {number} */ (mesh.targets.get(target)), weight }] : []));
   const expression = (binds, extra = {}) => ({
-    ...(binds.length > 0 ? { morphTargetBinds: binds.map(bind) } : {}),
+    ...(binds.some((b) => bind(b).length > 0) ? { morphTargetBinds: binds.flatMap(bind) } : {}),
     isBinary: false,
     overrideBlink: "none",
     overrideLookAt: "none",
@@ -70,10 +74,13 @@ export function buildExpressions(ctx, { plan, targets, materials, meshNode }) {
   model.morphs.forEach((morph, index) => {
     let name = morph.name || morph.nameEn;
     const e = plan.expanded[index];
-    const target = targetOf.get(index);
+    const found = targetOf.get(index);
+    const target = found !== undefined && shown.has(found) ? found : undefined;
     const colorBinds = materialColorBinds(ctx, e, materials);
     const uv = uniformUvOffsets(ctx, e.uv);
-    const textureBinds = (uv ?? []).map(({ material, offset }) => ({ material: materials[material].gltfIndex, scale: [1, 1], offset }));
+    const textureBinds = (uv ?? []).flatMap(({ material, offset }) =>
+      [materials[material].gltfIndex, materials[material].edgelessIndex].flatMap((index) => (index === undefined ? [] : [{ material: index, scale: [1, 1], offset }])),
+    );
     if (target === undefined && colorBinds.length === 0 && textureBinds.length === 0) {
       // UV, flip and impulse morphs are already counted by kind.
       const brightens = e.material.some(({ part }) => part.operation === 1 && [0, 1, 2].some((k) => part.textureTint[k] > 0 || part.toonTint[k] > 0));
@@ -121,10 +128,14 @@ function materialColorBinds(ctx, e, materials) {
     const before = materialColors(model.materials[m], materials[m].toon);
     const after = materialColors(copy, materials[m].toon);
     const gltf = materials[m].gltfIndex;
+    // The material's outline-free copy (faces MMD draws without an edge) changes colour with it.
+    const edgeless = materials[m].edgelessIndex;
     const differs = (a, b) => a.some((v, k) => Math.abs(v - b[k]) > 1e-6);
-    if (differs([...before.lit, before.alpha], [...after.lit, after.alpha]))
-      binds.push({ material: gltf, type: "color", targetValue: [...after.lit, after.alpha] });
-    if (differs(before.shade, after.shade)) binds.push({ material: gltf, type: "shadeColor", targetValue: [...after.shade, 1] });
+    for (const material of edgeless === undefined ? [gltf] : [gltf, edgeless]) {
+      if (differs([...before.lit, before.alpha], [...after.lit, after.alpha]))
+        binds.push({ material, type: "color", targetValue: [...after.lit, after.alpha] });
+      if (differs(before.shade, after.shade)) binds.push({ material, type: "shadeColor", targetValue: [...after.shade, 1] });
+    }
     if (before.outline && after.outline && differs(before.outline, after.outline))
       binds.push({ material: gltf, type: "outlineColor", targetValue: [...after.outline, 1] });
   }

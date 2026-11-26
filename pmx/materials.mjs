@@ -191,7 +191,31 @@ export function materialColors(material, toon) {
  * @property {number} gltfIndex
  * @property {string} alphaMode
  * @property {ToonRamp | null} toon
+ * @property {boolean} outlined
+ * @property {number} [edgelessIndex] The copy without an outline, once a mesh needs it.
  */
+
+/**
+ * The material's copy without an outline, for faces whose vertices MMD draws
+ * without an edge (per-vertex edge scale under a half), which MToon cannot vary
+ * per vertex.
+ * Made once, on first use.
+ * @param {import("./context.mjs").Context} ctx
+ * @param {MaterialInfo} info
+ * @returns {number}
+ */
+export function edgelessVariant(ctx, info) {
+  if (info.edgelessIndex === undefined) {
+    const copy = structuredClone(ctx.builder.materials[info.gltfIndex]);
+    const mtoon = copy.extensions.VRMC_materials_mtoon;
+    mtoon.outlineWidthMode = "none";
+    for (const key of ["outlineWidthFactor", "outlineColorFactor", "outlineLightingMixFactor"]) delete mtoon[key];
+    copy.name = `${copy.name} (no outline)`;
+    ctx.builder.materials.push(copy);
+    info.edgelessIndex = ctx.builder.materials.length - 1;
+  }
+  return info.edgelessIndex;
+}
 
 /**
  * One glTF material per PMX material, in PMX order. A material whose alpha a
@@ -271,19 +295,9 @@ export function buildMaterials(ctx, alphaAnimated = new Set(), revealed = new Se
     };
     if (alphaMode === "MASK") gltf.alphaCutoff = 0.5;
     ctx.builder.materials.push(gltf);
-    return { gltfIndex: ctx.builder.materials.length - 1, alphaMode, toon };
+    return { gltfIndex: ctx.builder.materials.length - 1, alphaMode, toon, outlined: Boolean(colors.outline) };
   });
   drop(ctx, "specular highlights (materials)", specular);
   drop(ctx, "outline transparency (materials, drawn opaque)", translucentEdges);
-  // Only vertices of outlined materials lose their per-vertex outline width.
-  const edged = new Set();
-  let start = 0;
-  for (const material of model.materials) {
-    if (materialColors(material, null).outline) for (let i = start; i < start + material.indexCount; i++) edged.add(model.indices[i]);
-    start += material.indexCount;
-  }
-  let scaled = 0;
-  for (const v of edged) if (Math.abs(model.edgeScales[v] - 1) > 0.01) scaled += 1;
-  drop(ctx, "per-vertex outline width (vertices)", scaled);
   return results;
 }

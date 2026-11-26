@@ -9,9 +9,9 @@ const LICENSE_URL = "https://vrm.dev/licenses/1.0/";
 
 /**
  * @param {import("./context.mjs").Context} ctx
- * @param {{meshNode: number, materials: unknown[], targets: import("./morphs.mjs").MorphTarget[]}} parts
+ * @param {{meshes: {node: number}[]}} parts
  */
-export function buildVrm(ctx, { meshNode }) {
+export function buildVrm(ctx, { meshes }) {
   const { model, options, report } = ctx;
   /** @type {Record<string, {node: number}>} */
   const humanBones = {};
@@ -42,7 +42,7 @@ export function buildVrm(ctx, { meshNode }) {
     specVersion: "1.0",
     meta,
     humanoid: { humanBones },
-    firstPerson: { meshAnnotations: [{ node: meshNode, type: "auto" }] },
+    firstPerson: { meshAnnotations: meshes.map(({ node }) => ({ node, type: "auto" })) },
   };
   if (ctx.expressions) vrm.expressions = ctx.expressions;
   if (ctx.lookAt) vrm.lookAt = ctx.lookAt;

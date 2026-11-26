@@ -6,23 +6,14 @@ import { test } from "node:test";
 import { convertPmx } from "./convert.mjs";
 import { readGlb } from "./gltf.mjs";
 import { MORPH_TYPES } from "./reader.mjs";
+import { bindNames, meshAttributes, meshes, sparseEntries, targetOffsets } from "./testing/read-vrm.mjs";
 import { BONES, syntheticHumanoid, writeModelFolder } from "./testing/synthetic.mjs";
 
 async function convert(parts) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "pmx-lookat-"));
   const file = await writeModelFolder(dir, parts);
   const result = convertPmx(new Uint8Array(await readFile(file)), { baseDir: dir, converterVersion: "test" });
-  return { ...result, ...readGlb(result.glb) };
-}
-
-/** A dense accessor's values, `size` per element. */
-function accessor(json, bin, index) {
-  const a = json.accessors[index];
-  const view = json.bufferViews[a.bufferView];
-  const size = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[a.type];
-  const Type = { 5121: Uint8Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array }[a.componentType];
-  const start = bin.byteOffset + view.byteOffset + (a.byteOffset ?? 0);
-  return { size, values: new Type(bin.buffer.slice(start, start + a.count * size * Type.BYTES_PER_ELEMENT)) };
+  return { ...result, ...readGlb(result.glb), model: parts.model };
 }
 
 /** Parent node of each node. */
@@ -33,15 +24,13 @@ const parentsOf = (json) => {
 };
 
 /**
- * Skin the listed vertices with the eye node turned by `angle` about +Y (the
- * nodes carry only translations, so the eye's subtree turns about its
+ * Skin the listed PMX vertices with the eye node turned by `angle` about +Y
+ * (the nodes carry only translations, so the eye's subtree turns about its
  * position and every other joint stays). Returns the skinned positions.
  */
-function skinWithEyeTurned(json, bin, vertices, eyeNode, angle) {
-  const primitive = json.meshes[0].primitives[0];
-  const positions = accessor(json, bin, primitive.attributes.POSITION).values;
-  const joints = accessor(json, bin, primitive.attributes.JOINTS_0).values;
-  const weights = accessor(json, bin, primitive.attributes.WEIGHTS_0).values;
+function skinWithEyeTurned(json, bin, model, pmxVertices, eyeNode, angle) {
+  // Each PMX vertex from the first mesh that holds it, at its index there.
+  const data = meshes(json, model).map((m) => ({ ...m, ...meshAttributes(json, bin, m.mesh) }));
   const parent = parentsOf(json);
   const world = (node) => {
     const t = [0, 0, 0];
@@ -55,7 +44,9 @@ function skinWithEyeTurned(json, bin, vertices, eyeNode, angle) {
   };
   const skinJoints = json.skins[0].joints;
   const [c, s] = [Math.cos(angle), Math.sin(angle)];
-  return vertices.map((v) => {
+  return pmxVertices.map((pmx) => {
+    const { positions, joints, weights, vertices } = /** @type {any} */ (data.find((m) => m.vertices.includes(pmx)));
+    const v = vertices.indexOf(pmx);
     const p = [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]];
     const d = [p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2]];
     const turned = [pivot[0] + c * d[0] + s * d[2], p[1], pivot[2] - s * d[0] + c * d[2]];
@@ -92,7 +83,7 @@ test("eye bones that carry the eyes give bone look-at between the eyes", async (
 
 test("pupil and highlight bones beside the eyes move under the eye bones, so the eyes turn whole", async () => {
   const parts = syntheticHumanoid({ eyes: "pupil" });
-  const { json, bin, report } = await convert(parts);
+  const { json, bin, model, report } = await convert(parts);
   assert.equal(json.extensions.VRMC_vrm.lookAt.type, "bone");
   const parent = parentsOf(json);
   for (const [p, eye] of [
@@ -106,13 +97,13 @@ test("pupil and highlight bones beside the eyes move under the eye bones, so the
     assert.equal(parent[json.nodes.findIndex((n) => n.name === `${p}まぶた`)], BONES.head, "the lid stays on the head");
     // Turning the eye bone moves the iris and highlight rigidly, and leaves the white.
     const moving = [...parts.eyeParts[`${p}iris`], ...parts.eyeParts[`${p}highlight`]];
-    const before = skinWithEyeTurned(json, bin, moving, eye, 0);
-    const after = skinWithEyeTurned(json, bin, moving, eye, 0.3);
+    const before = skinWithEyeTurned(json, bin, model, moving, eye, 0);
+    const after = skinWithEyeTurned(json, bin, model, moving, eye, 0.3);
     const [d0, d1] = [distances(before), distances(after)];
     assert.ok(d0.every((d, i) => Math.abs(d - d1[i]) < 1e-5), "rigid");
     assert.ok(Math.hypot(...before[0].map((v, k) => v - after[0][k])) > 1e-3, "and it does move");
     const white = parts.eyeParts[`${p}white`];
-    assert.deepEqual(skinWithEyeTurned(json, bin, white, eye, 0.3), skinWithEyeTurned(json, bin, white, eye, 0));
+    assert.deepEqual(skinWithEyeTurned(json, bin, model, white, eye, 0.3), skinWithEyeTurned(json, bin, model, white, eye, 0));
   }
   // Nodes keep their rest positions: the moved bones' world positions are unchanged.
   const world = (node) => {
@@ -127,32 +118,21 @@ test("pupil and highlight bones beside the eyes move under the eye bones, so the
 
 test("when a bone that also moves the cheek carries part of an eye, look-at turns the eyes by expression", async () => {
   const parts = syntheticHumanoid({ eyes: "stuck" });
-  const { json, bin, report } = await convert(parts);
+  const { json, bin, model, report } = await convert(parts);
   const vrm = json.extensions.VRMC_vrm;
   assert.equal(vrm.lookAt.type, "expression");
   assert.deepEqual(vrm.lookAt.rangeMapVerticalUp, { inputMaxValue: 90, outputScale: 1 });
   assert.equal(report.lookAt, "expression (lookUp/Down/Left/Right morph targets turn the eye meshes, because 2 bones that carry part of the eyes cannot move under the eye bones; '左頬', for one, also moves other parts of the model).");
-  const names = json.meshes[0].extras.targetNames;
-  for (const preset of ["lookLeft", "lookRight", "lookUp", "lookDown"]) {
-    const binds = vrm.expressions.preset[preset].morphTargetBinds;
-    assert.equal(binds.length, 1);
-    assert.equal(names[binds[0].index], preset);
-  }
+  for (const preset of ["lookLeft", "lookRight", "lookUp", "lookDown"]) assert.deepEqual(bindNames(json, vrm.expressions.preset[preset]), [[preset, 1]]);
   // No bone moved: the cheek bones stay on the head.
   assert.equal(parentsOf(json)[json.nodes.findIndex((n) => n.name === "左頬")], BONES.head);
   // lookLeft turns the left iris's front (toward +Z, the face's front) toward +X, the model's left.
-  const target = json.meshes[0].primitives[0].targets[names.indexOf("lookLeft")];
-  const sparse = json.accessors[target.POSITION].sparse;
-  assert.equal(sparse.count, parts.eyeParts["左iris"].length + parts.eyeParts["右iris"].length);
-  const view = (v) => json.bufferViews[v];
-  const slice = (Type, v) => new Type(bin.buffer.slice(bin.byteOffset + view(v).byteOffset, bin.byteOffset + view(v).byteOffset + view(v).byteLength));
-  const indices = slice(sparse.indices.componentType === 5123 ? Uint16Array : Uint32Array, sparse.indices.bufferView);
-  const offsets = slice(Float32Array, sparse.values.bufferView);
+  const offsets = targetOffsets(json, bin, model, "lookLeft");
+  assert.equal(offsets.size, parts.eyeParts["左iris"].length + parts.eyeParts["右iris"].length);
   const front = parts.eyeParts["左iris"].slice(0, 4); // the box's first end is the iris front
-  for (const v of front) {
-    const i = Array.from(indices).indexOf(v);
-    assert.ok(i >= 0 && offsets[i * 3] > 0, `vertex ${v} moves toward +X`);
-  }
+  for (const v of front) assert.ok(offsets.get(v)?.[0] > 0, `vertex ${v} moves toward +X`);
+  // The look targets are only in the eye material's mesh.
+  assert.deepEqual(json.meshes.filter((mesh) => mesh.extras?.targetNames?.includes("lookLeft")).map((mesh) => mesh.name), ["目"]);
   // The blinks block the look while the eyes are closed, so the iris does not cross the lid.
   assert.equal(vrm.expressions.preset.blink.overrideLookAt, "block");
 });
@@ -177,12 +157,10 @@ test("a vertex both eyes carry turns with the nearer eye only", async () => {
   model.skinWeights.set([0.5, 0.5, 0, 0], v * 4);
   const { json, bin } = await convert(parts);
   assert.equal(json.extensions.VRMC_vrm.lookAt.type, "expression");
-  const names = json.meshes[0].extras.targetNames;
-  const sparse = json.accessors[json.meshes[0].primitives[0].targets[names.indexOf("lookLeft")].POSITION].sparse;
-  assert.equal(sparse.count, eyeParts["左iris"].length + eyeParts["右iris"].length, "each vertex once");
-  const view = json.bufferViews[sparse.indices.bufferView];
-  const Type = sparse.indices.componentType === 5123 ? Uint16Array : Uint32Array;
-  const indices = new Type(bin.buffer.slice(bin.byteOffset + view.byteOffset, bin.byteOffset + view.byteOffset + view.byteLength));
+  const eyeMesh = json.meshes.findIndex((mesh) => mesh.name === "目");
+  const target = json.meshes[eyeMesh].primitives[0].targets[json.meshes[eyeMesh].extras.targetNames.indexOf("lookLeft")];
+  const { indices } = sparseEntries(json, bin, target.POSITION);
+  assert.equal(indices.length, eyeParts["左iris"].length + eyeParts["右iris"].length, "each vertex once");
   assert.ok(indices.every((index, i) => i === 0 || index > indices[i - 1]), "strictly increasing");
 });
 
@@ -196,7 +174,7 @@ test("a bone beside the eye that hangs from another bone a morph moves is not cu
   const { json, report } = await convert(parts);
   assert.equal(json.extensions.VRMC_vrm.lookAt.type, "expression");
   assert.match(report.lookAt, /2 bones that carry part of the eyes .* hangs from 'ハイライト親', which is not above the eye bone\)\.$/);
-  assert.ok(json.meshes[0].extras.targetNames.includes("ハイライト消"), "the morph still moves the highlights");
+  assert.ok(json.meshes.some((mesh) => mesh.extras?.targetNames?.includes("ハイライト消")), "the morph still moves the highlights");
 });
 
 test("a bone that carries part of both eyes is counted once among the stuck bones", async () => {

@@ -8,7 +8,7 @@ import { readGlb } from "./gltf.mjs";
 import { createImage, encodePng } from "./images.mjs";
 import { MMD_LIGHT, OUTLINE_PER_EDGE_SIZE, SHARED_TOONS, rampOf, shadingOf, srgbToLinear } from "./materials.mjs";
 import { MATERIAL_FLAGS } from "./reader.mjs";
-import { syntheticHumanoid, writeModelFolder } from "./testing/synthetic.mjs";
+import { BONES, syntheticHumanoid, writeModelFolder } from "./testing/synthetic.mjs";
 
 async function convert(parts) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "pmx-materials-"));
@@ -147,7 +147,7 @@ test("turns an additive sphere map into a matcap and counts what MToon cannot dr
   assert.equal(mtoonOf(json, "髪").mtoon.matcapTexture, undefined);
   assert.equal(report.dropped["multiplicative sphere maps (.sph)"], 1);
   assert.equal(report.dropped["specular highlights (materials)"], 1);
-  assert.equal(report.dropped["per-vertex outline width (vertices)"], 1);
+  assert.equal(report.dropped["per-vertex outline width (vertices drawn at full width)"], 1);
 });
 
 test("embeds one image for texture entries that name the same file", async () => {
@@ -218,5 +218,67 @@ test("counts translucent edges and the edge scale of outlined vertices only", as
   parts.model.edgeScales[parts.model.vertexCount - 1] = 2;
   const { report } = await convert(parts);
   assert.equal(report.dropped["outline transparency (materials, drawn opaque)"], 1);
-  assert.equal(report.dropped["per-vertex outline width (vertices)"], 1);
+  assert.equal(report.dropped["per-vertex outline width (vertices drawn at full width)"], 1);
+});
+
+test("faces MMD draws without an edge go in a primitive whose material copy has no outline", async () => {
+  const parts = syntheticHumanoid();
+  const { model } = parts;
+  // The right leg's boxes: per-vertex edge scale 0, as MMD models set on hems.
+  const leg = [];
+  let start = 0;
+  for (let f = start; f < model.materials[0].indexCount; f += 3) {
+    const face = [model.indices[f], model.indices[f + 1], model.indices[f + 2]];
+    if (face.every((v) => model.skinBones[v * 4] === BONES.rightKnee)) leg.push(...face);
+  }
+  assert.ok(leg.length > 0);
+  for (const v of leg) model.edgeScales[v] = 0;
+  // 照れ tints the body: the copy must tint with it.
+  const { json, report } = await convert(parts);
+  const body = json.meshes.find((m) => m.name === "体");
+  assert.equal(body.primitives.length, 2);
+  const [outlined, edgeless] = body.primitives.map((p) => json.materials[p.material]);
+  assert.equal(outlined.extensions.VRMC_materials_mtoon.outlineWidthMode, "screenCoordinates");
+  assert.equal(edgeless.name, "体 (no outline)");
+  assert.equal(edgeless.extensions.VRMC_materials_mtoon.outlineWidthMode, "none");
+  assert.equal(edgeless.extensions.VRMC_materials_mtoon.outlineWidthFactor, undefined);
+  assert.deepEqual(body.primitives[1].targets, body.primitives[0].targets, "both primitives morph alike");
+  const blush = json.extensions.VRMC_vrm.expressions.custom["照れ"].materialColorBinds.filter((b) => b.type === "color");
+  assert.deepEqual(blush.map((b) => json.materials[b.material].name).sort(), ["体", "体 (no outline)"]);
+  assert.equal(report.dropped["per-vertex outline width (vertices drawn at full width)"], undefined, "a width of 0 is drawn as no outline");
+  // The hair has no outline: no copy for it.
+  assert.equal(json.materials.filter((m) => m.name.startsWith("髪")).length, 1);
+});
+
+test("blended materials that tie on render order share one mesh, in PMX order; others keep their own", async () => {
+  const parts = syntheticHumanoid({ eyes: "pupil" });
+  const { materials } = parts.model;
+  // Hidden at rest (alpha 0), the eyes and the white eyes share MToon's queue slot: they tie.
+  const eye = materials.findIndex((m) => m.name === "目");
+  const white = materials.findIndex((m) => m.name === "白目");
+  materials[eye].diffuse = [1, 1, 1, 0];
+  materials[white].diffuse = [1, 1, 1, 0];
+  const { json } = await convert(parts);
+  const transparent = json.meshes.find((m) => m.name === "Transparent");
+  assert.deepEqual(
+    transparent.primitives.map((p) => json.materials[p.material].name),
+    ["目", "白目"],
+  );
+  // The hair, blended with its own queue slot, keeps a mesh of its own, as does the opaque body.
+  assert.deepEqual(json.meshes.find((m) => m.name === "髪").primitives.length, 1);
+  assert.ok(json.meshes.some((m) => m.name === "体"));
+});
+
+test("a face material keeps its outline whole: Animama finds the face skin as one primitive", async () => {
+  const parts = syntheticHumanoid({ eyes: "material" });
+  const { model } = parts;
+  const eye = model.materials.length - 1; // 瞳, skinned to the head
+  model.materials[eye].flags |= MATERIAL_FLAGS.edge;
+  let start = 0;
+  for (let m = 0; m < eye; m++) start += model.materials[m].indexCount;
+  for (let i = start; i < start + model.materials[eye].indexCount; i++) model.edgeScales[model.indices[i]] = 0;
+  const { json, report } = await convert(parts);
+  assert.equal(json.meshes.find((m) => m.name === "瞳").primitives.length, 1);
+  assert.ok(!json.materials.some((m) => m.name === "瞳 (no outline)"));
+  assert.ok(report.dropped["per-vertex outline width (vertices drawn at full width)"] > 0);
 });

@@ -243,6 +243,9 @@ export const BONES = Object.freeze({
   leftIndex1: 12,
   rightShoulder: 13,
   rightArm: 14,
+  rightElbow: 15,
+  rightWrist: 16,
+  rightIndex1: 17,
   lowerBody: 18,
   leftLeg: 19,
   leftKnee: 20,
@@ -265,7 +268,7 @@ export const BONES = Object.freeze({
  * A small MMD-style humanoid: standard Japanese bone names, arms 35° below
  * horizontal (A-pose), D-bones on the left leg only, a three-bone hair chain
  * with physics, a few morphs, two materials and a BMP texture.
- * @param {{dBones?: boolean, eyes?: "bone" | "pupil" | "stuck" | "material" | "eyeball" | null, skirt?: boolean, branch?: boolean}} [options]
+ * @param {{dBones?: boolean, eyes?: "bone" | "pupil" | "stuck" | "material" | "eyeball" | null, skirt?: boolean, branch?: boolean, sleeves?: boolean}} [options]
  *   dBones false leaves out the D-bones and skins the left leg plainly.
  *   eyes adds eye meshes in front of the face (by default there are none: the eyes are "painted"):
  *   "bone" skinned to 左目/右目; "pupil" half to the eye bones and half to pupil bones beside
@@ -276,9 +279,11 @@ export const BONES = Object.freeze({
  *   "eyeball" the same, as eyeballs as deep as they are wide (眼球).
  *   skirt adds two simulated skirt chains under 下半身 that hit the legs, tied by a ring joint.
  *   branch makes 髪3 simulated and adds 髪3b, a second simulated child of 髪2.
+ *   sleeves adds a sleeve chain beside each arm, under the shoulder, that one-link IKs riding
+ *   on the arm's twist bones turn to follow it (and an ornament IK whose link sits on no arm joint).
  * @returns {{builder: ModelBuilder, model: PmxModel, files: Record<string, Uint8Array>, headVertices: number[], eyeParts: Record<string, number[]>}}
  */
-export function syntheticHumanoid({ dBones = true, eyes = null, skirt = false, branch = false } = {}) {
+export function syntheticHumanoid({ dBones = true, eyes = null, skirt = false, branch = false, sleeves = false } = {}) {
   const m = new ModelBuilder({ comment: "モデル製作：テスト作者\r\n改変OK", commentEn: "Model: Test Author" });
   const c = Math.cos((35 * Math.PI) / 180);
   const s = Math.sin((35 * Math.PI) / 180);
@@ -500,6 +505,32 @@ export function syntheticHumanoid({ dBones = true, eyes = null, skirt = false, b
     m.body({ name: "髪3", bone: BONES.hair3, group: 2, collisionMask: hairMask, shape: 0, size: [0.3, 0, 0], position: [0, 13.5, 1.8], mass: 0.5, mode: 1 });
     const side = m.bone("髪3b", [0.5, 14, 1.8], BONES.hair2);
     m.body({ name: "髪3b", bone: side, group: 2, collisionMask: hairMask, shape: 0, size: [0.3, 0, 0], position: [0.6, 13.5, 1.8], mass: 0.5, mode: 1 });
+  }
+
+  if (sleeves) {
+    for (const [p, shoulder, arm, elbow, wrist] of [
+      ["左", BONES.leftShoulder, BONES.leftArm, BONES.leftElbow, BONES.leftWrist],
+      ["右", BONES.rightShoulder, BONES.rightArm, BONES.rightElbow, BONES.rightWrist],
+    ]) {
+      const at = (bone) => [...m.bones[bone].position];
+      const upper = m.bone(`${p}腕袖`, at(arm), shoulder);
+      const lower = m.bone(`${p}ひじ袖`, at(elbow), upper);
+      const cuff = m.bone(`${p}手首袖`, at(wrist), lower);
+      const tip = m.bone(`${p}手袖先`, addv(at(wrist), sub(at(wrist), at(elbow))), cuff);
+      const ik = (name, parent, target, link) =>
+        m.bone(name, m.bones[target].position, parent, { flags: BONE_FLAGS.ik, ik: { target, loops: 10, limitAngle: 1, links: [{ bone: link, hasLimits: false, min: [0, 0, 0], max: [0, 0, 0] }] } });
+      // As on real models, the IKs ride on twist bones between the joints.
+      const mid = (a, b) => at(a).map((v, k) => (v + at(b)[k]) / 2);
+      const armTwist = m.bone(`${p}腕捩`, mid(arm, elbow), arm);
+      const handTwist = m.bone(`${p}手捩`, mid(elbow, wrist), elbow);
+      ik(`${p}腕袖IK`, armTwist, lower, upper);
+      ik(`${p}手袖IK`, handTwist, cuff, lower);
+      ik(`${p}手首袖IK`, wrist, tip, cuff);
+      // An ornament an IK on the arm points, whose link sits on no arm joint: left as it is.
+      const ornament = m.bone(`${p}飾り`, addv(at(shoulder), [0, 0.5, 0]), shoulder);
+      const end = m.bone(`${p}飾り先`, addv(at(shoulder), [0, 0.5, -0.5]), ornament);
+      ik(`${p}飾りIK`, arm, end, ornament);
+    }
   }
 
   // One SDEF and one BDEF4 vertex to cover the other weight types.

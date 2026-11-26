@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { convertPmx } from "./convert.mjs";
 import { readGlb } from "./gltf.mjs";
+import { bindNames, targetOffsets } from "./testing/read-vrm.mjs";
 import { isDescendant } from "./humanoid.mjs";
 import { BONE_FLAGS, MORPH_TYPES } from "./reader.mjs";
 import { BONES, syntheticHumanoid, writeModelFolder } from "./testing/synthetic.mjs";
@@ -13,33 +14,21 @@ async function convert(parts = syntheticHumanoid(), options = {}) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "pmx-expressions-"));
   const file = await writeModelFolder(dir, parts);
   const result = convertPmx(new Uint8Array(await readFile(file)), { baseDir: dir, converterVersion: "test", ...options });
-  return { ...result, ...readGlb(result.glb) };
-}
-
-/** A sparse morph target's offsets by vertex. */
-function targetOffsets(json, bin, index) {
-  const accessor = json.accessors[json.meshes[0].primitives[0].targets[index].POSITION];
-  const view = (v) => json.bufferViews[v];
-  const indicesView = view(accessor.sparse.indices.bufferView);
-  const valuesView = view(accessor.sparse.values.bufferView);
-  const Indices = accessor.sparse.indices.componentType === 5123 ? Uint16Array : Uint32Array;
-  const indices = new Indices(bin.buffer.slice(bin.byteOffset + indicesView.byteOffset, bin.byteOffset + indicesView.byteOffset + indicesView.byteLength));
-  const values = new Float32Array(bin.buffer.slice(bin.byteOffset + valuesView.byteOffset, bin.byteOffset + valuesView.byteOffset + valuesView.byteLength));
-  return new Map(Array.from(indices, (v, i) => [v, [values[i * 3], values[i * 3 + 1], values[i * 3 + 2]]]));
+  return { ...result, ...readGlb(result.glb), model: parts.model };
 }
 
 const expressionsOf = (json) => json.extensions.VRMC_vrm.expressions;
-const targetIndex = (json, name) => json.meshes[0].extras.targetNames.indexOf(name);
 
 test("fills the presets, with winks judged by side and emotions blending the blink", async () => {
   const { json, report } = await convert();
   const { preset } = expressionsOf(json);
-  assert.deepEqual(preset.aa.morphTargetBinds, [{ node: json.nodes.length - 1, index: targetIndex(json, "あ"), weight: 1 }]);
-  assert.equal(preset.blink.morphTargetBinds[0].index, targetIndex(json, "まばたき"));
-  assert.equal(preset.blinkLeft.morphTargetBinds[0].index, targetIndex(json, "ウィンク２"));
-  assert.equal(preset.blinkRight.morphTargetBinds[0].index, targetIndex(json, "ｳｨﾝｸ２右"));
+  assert.deepEqual(bindNames(json, preset.aa), [["あ", 1]]);
+  assert.ok(preset.aa.morphTargetBinds.every((b) => json.nodes[b.node].mesh !== undefined), "binds name mesh nodes");
+  assert.equal(bindNames(json, preset.blink)[0][0], "まばたき");
+  assert.equal(bindNames(json, preset.blinkLeft)[0][0], "ウィンク２");
+  assert.equal(bindNames(json, preset.blinkRight)[0][0], "ｳｨﾝｸ２右");
   // 笑い is a group morph (eye panel); its baked target plays the happy eyes, so happy blends the blink.
-  assert.deepEqual(preset.happy.morphTargetBinds.map((b) => b.index), [targetIndex(json, "笑い")]);
+  assert.deepEqual(bindNames(json, preset.happy).map(([name]) => name), ["笑い"]);
   assert.equal(preset.happy.overrideBlink, "blend");
   assert.equal(preset.aa.overrideBlink, "none");
   assert.ok(report.expressions.some((line) => line.name === "happy" && /eyes 笑い/.test(line.binds[0])));
@@ -48,20 +37,20 @@ test("fills the presets, with winks judged by side and emotions blending the bli
 test("writes Animama's per-region parts and a custom expression for every converted morph", async () => {
   const { json } = await convert();
   const { custom } = expressionsOf(json);
-  assert.deepEqual(custom.Fcl_EYE_Joy.morphTargetBinds.map((b) => b.index), [targetIndex(json, "笑い")]);
-  assert.deepEqual(custom.Fcl_BRW_Angry.morphTargetBinds.map((b) => b.index), [targetIndex(json, "怒り")]);
+  assert.deepEqual(bindNames(json, custom.Fcl_EYE_Joy).map(([name]) => name), ["笑い"]);
+  assert.deepEqual(bindNames(json, custom.Fcl_BRW_Angry).map(([name]) => name), ["怒り"]);
   assert.ok(custom.Fcl_ALL_Joy);
   for (const name of ["首かしげ", "照れ"]) assert.ok(custom[name], name);
   // Every converted morph is listed under its own name, even one a preset already plays.
-  assert.deepEqual(custom["あ"].morphTargetBinds.map((b) => b.index), [targetIndex(json, "あ")]);
+  assert.deepEqual(bindNames(json, custom["あ"]).map(([name]) => name), ["あ"]);
   assert.equal(custom.Fcl_BRW_Joy, undefined, "no brow morph smiles: that region stays neutral");
 });
 
 test("bakes a group morph's weighted parts into one target", async () => {
-  const { json, bin } = await convert();
-  const group = targetOffsets(json, bin, targetIndex(json, "笑い"));
-  const blink = targetOffsets(json, bin, targetIndex(json, "まばたき"));
-  const mouth = targetOffsets(json, bin, targetIndex(json, "あ"));
+  const { json, bin, model } = await convert();
+  const group = targetOffsets(json, bin, model, "笑い");
+  const blink = targetOffsets(json, bin, model, "まばたき");
+  const mouth = targetOffsets(json, bin, model, "あ");
   // 笑い = まばたき × 0.5 + あ × 0.3 (+ a material part, which is no geometry).
   const every = new Set([...group.keys(), ...blink.keys(), ...mouth.keys()]);
   assert.ok(every.size > 0);
@@ -74,8 +63,8 @@ test("bakes a group morph's weighted parts into one target", async () => {
 
 test("bakes a bone morph by turning its bone about its pivot", async () => {
   const parts = syntheticHumanoid();
-  const { json, bin } = await convert(parts);
-  const offsets = targetOffsets(json, bin, targetIndex(json, "首かしげ"));
+  const { json, bin, model } = await convert(parts);
+  const offsets = targetOffsets(json, bin, model, "首かしげ");
   const { positions } = parts.model;
   // 首かしげ turns the neck 0.2 rad about MMD's +Z. Mirrored into glTF (z → −z,
   // quaternion (−x, −y, z, w)) it is still +0.2 rad about +Z, so the head swings toward −X.
@@ -131,7 +120,7 @@ test("applies --expression overrides, keeping each mood's preset and region part
     ],
   });
   const { preset, custom } = expressionsOf(json);
-  const binds = (e) => (e.morphTargetBinds ?? []).map((b) => [json.meshes[0].extras.targetNames[b.index], b.weight]);
+  const binds = (e) => bindNames(json, e);
   // happy splits into its regions by each morph's panel: あ is mouth, まばたき eyes.
   assert.deepEqual(binds(preset.happy), [["あ", 0.5], ["まばたき", 1]]);
   assert.deepEqual(binds(custom.Fcl_ALL_Joy), binds(preset.happy));
@@ -160,8 +149,10 @@ test("refuses overrides it cannot apply", async () => {
 
 test("keeps every target name unique and the bone morph's neck bone untouched in the skeleton", async () => {
   const { json } = await convert();
-  const names = json.meshes[0].extras.targetNames;
-  assert.equal(new Set(names).size, names.length);
+  for (const mesh of json.meshes) {
+    const names = mesh.extras?.targetNames ?? [];
+    assert.equal(new Set(names).size, names.length, mesh.name);
+  }
   assert.equal(json.nodes[BONES.neck].rotation, undefined);
 });
 
@@ -182,7 +173,7 @@ test("bakes bone morphs about any axis, mirrored, at weights other than 1", asyn
   morphs.push(pmxMorph("首振り二倍", 4, MORPH_TYPES.group, { group: [{ morph: turn, weight: 2 }] }));
   // And 0.2 rad about MMD's +X, which the mirror also reverses.
   morphs.push(pmxMorph("うなずき", 4, MORPH_TYPES.bone, { bone: [{ bone: BONES.neck, translation: [0, 0, 0], rotation: [Math.sin(0.1), 0, 0, Math.cos(0.1)] }] }));
-  const { json, bin } = await convert(parts);
+  const { json, bin, model } = await convert(parts);
   const { positions } = parts.model;
   const neck = parts.model.bones[BONES.neck].position;
   const v = parts.headVertices[0];
@@ -195,13 +186,13 @@ test("bakes bone morphs about any axis, mirrored, at weights other than 1", asyn
   ]) {
     const phi = -0.2 * weight;
     const expected = [Math.cos(phi) * dx + Math.sin(phi) * dz - dx, 0, -Math.sin(phi) * dx + Math.cos(phi) * dz - dz];
-    const offset = targetOffsets(json, bin, targetIndex(json, name)).get(v);
+    const offset = targetOffsets(json, bin, model, name).get(v);
     assert.ok(offset.every((value, k) => Math.abs(value - expected[k]) < 1e-5), `${name}: ${offset} vs ${expected}`);
   }
   const dy = (positions[v * 3 + 1] - neck[1]) * 0.08;
   const [c, s] = [Math.cos(-0.2), Math.sin(-0.2)];
   const expected = [0, c * dy - s * dz - dy, s * dy + c * dz - dz];
-  const nod = targetOffsets(json, bin, targetIndex(json, "うなずき")).get(v);
+  const nod = targetOffsets(json, bin, model, "うなずき").get(v);
   assert.ok(nod.every((value, k) => Math.abs(value - expected[k]) < 1e-5), `うなずき: ${nod} vs ${expected}`);
 });
 
@@ -215,15 +206,15 @@ test("a bone that inherits another's rotation (付与) follows a bone morph on t
   morphs.push(pmxMorph("首親かしげ", 4, MORPH_TYPES.bone, { bone: [{ bone: driver, translation: [0, 0, 0], rotation: [0, 0, Math.sin(0.1), Math.cos(0.1)] }] }));
   morphs.push(pmxMorph("首かしげ半分", 4, MORPH_TYPES.group, { group: [{ morph: 6, weight: 0.5 }] }));
   morphs.push(pmxMorph("首親上げ", 4, MORPH_TYPES.bone, { bone: [{ bone: driver, translation: [0, 1, 0], rotation: [0, 0, 0, 1] }] }));
-  const { json, bin } = await convert(parts);
+  const { json, bin, model } = await convert(parts);
   // Half the driver's turn, as 首かしげ at half weight.
-  const driven = targetOffsets(json, bin, targetIndex(json, "首親かしげ"));
-  const direct = targetOffsets(json, bin, targetIndex(json, "首かしげ半分"));
+  const driven = targetOffsets(json, bin, model, "首親かしげ");
+  const direct = targetOffsets(json, bin, model, "首かしげ半分");
   assert.ok(direct.size > 0);
   assert.deepEqual([...driven.keys()], [...direct.keys()]);
   for (const [v, offset] of direct) assert.ok(offset.every((value, k) => Math.abs(value - driven.get(v)[k]) < 1e-6), `vertex ${v}`);
   // Half the driver's move: the head rises 0.5 × 1 unit.
-  const raised = targetOffsets(json, bin, targetIndex(json, "首親上げ"));
+  const raised = targetOffsets(json, bin, model, "首親上げ");
   assert.deepEqual([...raised.keys()], [...direct.keys()]);
   for (const offset of raised.values()) assert.ok(Math.abs(offset[1] - 0.04) < 1e-6 && Math.abs(offset[0]) < 1e-6 && Math.abs(offset[2]) < 1e-6, `${offset}`);
 });
@@ -234,10 +225,10 @@ test("a morph named as the whole face plays the mood whole, blending the blink",
   parts.model.morphs.push(pmxMorph("Fcl_ALL_Joy", 2, MORPH_TYPES.vertex, { vertex: top.map((vertex) => ({ vertex, offset: [0, -0.1, 0] })) }));
   const { json } = await convert(parts);
   const { preset, custom } = expressionsOf(json);
-  assert.deepEqual(preset.happy.morphTargetBinds.map((b) => b.index), [targetIndex(json, "Fcl_ALL_Joy")]);
+  assert.deepEqual(bindNames(json, preset.happy).map(([name]) => name), ["Fcl_ALL_Joy"]);
   assert.equal(preset.happy.overrideBlink, "blend");
-  assert.deepEqual(custom.Fcl_ALL_Joy.morphTargetBinds.map((b) => b.index), [targetIndex(json, "Fcl_ALL_Joy")]);
-  assert.deepEqual(custom.Fcl_EYE_Joy.morphTargetBinds.map((b) => b.index), [targetIndex(json, "笑い")], "the eye panel's own morph still plays the eyes");
+  assert.deepEqual(bindNames(json, custom.Fcl_ALL_Joy).map(([name]) => name), ["Fcl_ALL_Joy"]);
+  assert.deepEqual(bindNames(json, custom.Fcl_EYE_Joy).map(([name]) => name), ["笑い"], "the eye panel's own morph still plays the eyes");
 });
 
 test("a morph that moves the whole face fills no single region", async () => {
@@ -309,7 +300,33 @@ test("a second morph of the same name keeps its own expression; a morph that cha
   parts.model.morphs.push(pmxMorph("無", 4, MORPH_TYPES.vertex, { vertex: [{ vertex: parts.headVertices[0], offset: [0, 0, 0] }] }));
   const { json, report } = await convert(parts);
   const { custom } = expressionsOf(json);
-  assert.deepEqual(custom["あ_2"].morphTargetBinds.map((b) => b.index), [targetIndex(json, "あ_2")]);
+  assert.deepEqual(bindNames(json, custom["あ_2"]).map(([name]) => name), ["あ_2"]);
   assert.equal(custom["無"], undefined);
   assert.equal(report.dropped["morphs that change nothing VRM can show (no offsets, or bones and materials outside the model)"], 1);
+});
+
+test("a morph that moves only vertices no face draws shows nothing: no face plays it, no expression lists it", async () => {
+  const parts = syntheticHumanoid();
+  const b = parts.builder;
+  // A vertex no face uses; まばたき moves only it, and a new morph too.
+  const loose = b.vertices.push({ ...b.vertices[2], bones: [...b.vertices[2].bones], weights: [...b.vertices[2].weights] }) - 1;
+  b.morphs[1].vertex = [{ vertex: loose, offset: [0, -0.2, 0] }];
+  b.vertexMorph("浮き", 4, [loose], [0, 1, 0]);
+  parts.model = b.build();
+  const { json, report } = await convert(parts);
+  const { preset, custom } = expressionsOf(json);
+  // The blink falls back to the two winks, and the report says so.
+  assert.deepEqual(bindNames(json, preset.blink).map(([name]) => name).sort(), ["ウィンク２", "ｳｨﾝｸ２右"].sort());
+  assert.ok(!report.expressions.find((line) => line.name === "blink").binds.includes("まばたき"));
+  assert.equal(custom["浮き"], undefined);
+  assert.equal(custom["まばたき"], undefined);
+  assert.equal(report.dropped["morph targets that move only vertices no face uses"], 2);
+  for (const e of [...Object.values(preset), ...Object.values(custom)]) assert.notDeepEqual(e.morphTargetBinds, [], "never an empty bind list");
+});
+
+test("warns when the morph targets would expand past what Animama accepts", async () => {
+  const quiet = await convert();
+  assert.ok(!quiet.report.warnings.some((w) => /morph targets expand/.test(w)));
+  const { report } = await convert(undefined, { morphExpansionLimit: 1000 });
+  assert.ok(report.warnings.some((w) => /^The morph targets expand to \d+ MB in a viewer; Animama accepts at most 100 MB/.test(w)), report.warnings.join("\n"));
 });

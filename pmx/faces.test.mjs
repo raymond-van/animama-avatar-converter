@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { composeFace, moodOf, parseExpressionOverride, regionOfName, regionOfPanel } from "./faces.mjs";
+import { composeFace, mirrorName, moodOf, parseExpressionOverride, regionOfName, regionOfPanel } from "./faces.mjs";
 import { normalizeName } from "./names.mjs";
 
 /** Face morphs as composeFace takes them, one per name, with a region and a side. */
@@ -63,6 +63,42 @@ test("a model made from VRoid keeps its own parts, and a whole-face morph takes 
   // 悲しみ states sorrow but moves the whole face: it fills no region, so the brows alone play sad.
   assert.deepEqual(named(list, presets.sad), ["困る"]);
   assert.equal(parts.Fcl_EYE_Sorrow, undefined);
+});
+
+test("a one-sided mood morph plays with its other side", () => {
+  const list = morphs([["eye_sad_geo_L", "EYE"], ["eye_sad_geo_R", "EYE"], ["brow_sadLeft", "BRW"], ["brow_sadRight", "BRW"], ["mouth_sad_geo_C", "MTH"]]);
+  const { parts } = composeFace(list, () => {});
+  assert.deepEqual(named(list, parts.Fcl_EYE_Sorrow), ["eye_sad_geo_L", "eye_sad_geo_R"]);
+  assert.deepEqual(named(list, parts.Fcl_BRW_Sorrow), ["brow_sadLeft", "brow_sadRight"]);
+  assert.deepEqual(named(list, parts.Fcl_MTH_Sorrow), ["mouth_sad_geo_C"], "a centre morph has no partner");
+  assert.equal(mirrorName("eye_sad_geo_L"), "eye_sad_geo_R");
+  assert.equal(mirrorName("eyeSquintRight"), "eyeSquintLeft");
+  assert.equal(mirrorName("笑い左"), "笑い右");
+  assert.equal(mirrorName("右笑い"), "左笑い");
+  assert.equal(mirrorName("mouth_sad_geo_C"), null);
+  assert.equal(mirrorName("Bright"), null, "not a side, only a word ending in right");
+  assert.equal(mirrorName("bright"), null);
+  assert.equal(mirrorName("mouth_upright"), null);
+  assert.equal(mirrorName("brow.right"), "brow.left");
+});
+
+test("a region with no named morph takes Animama's ARKit mix when the model has every shape of it", () => {
+  const shapes = ["eyeBlinkLeft", "eyeBlinkRight", "eyeSquintLeft", "eyeSquintRight", "cheekSquintLeft", "cheekSquintRight", "mouthSmileLeft", "mouthSmileRight"];
+  const list = morphs([["にっこり", "MTH"], ...shapes.map((name) => [name])]);
+  const { parts } = composeFace(list, () => {});
+  // Relaxed eyes: no なごみ or other relaxed eye morph, so the ARKit mix, at its weights.
+  assert.deepEqual(named(list, parts.Fcl_EYE_Fun), ["eyeBlinkLeft*0.15", "eyeBlinkRight*0.15", "eyeSquintLeft*0.5", "eyeSquintRight*0.5", "cheekSquintLeft*0.5", "cheekSquintRight*0.5"]);
+  assert.deepEqual(named(list, parts.Fcl_MTH_Fun), ["にっこり"], "a named morph comes first");
+  // Relaxed brows need shapes the model lacks: neutral, not a partial mix.
+  assert.equal(parts.Fcl_BRW_Fun, undefined);
+});
+
+test("ARKit shapes never pass for mood morphs by their names (mouthFunnel is no fun)", () => {
+  const shapes = ["mouthFunnel", "mouthSmileLeft", "mouthSmileRight", "jawOpen"];
+  const list = morphs(shapes.map((name) => [name, "MTH"]));
+  const { parts } = composeFace(list, () => {});
+  assert.deepEqual(named(list, parts.Fcl_MTH_Fun), ["mouthSmileLeft", "mouthSmileRight"], "Animama's relaxed mouth mix");
+  assert.deepEqual(named(list, parts.Fcl_MTH_Joy), ["mouthSmileLeft", "mouthSmileRight", "jawOpen*0.15"]);
 });
 
 test("judges a wink's side from the vertices it moves, not its name", () => {

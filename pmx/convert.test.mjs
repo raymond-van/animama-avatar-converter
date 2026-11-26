@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { ConversionError, MARKER_EXTENSION, convertPmx } from "./convert.mjs";
+import { BONE_FLAGS } from "./reader.mjs";
 import { readGlb } from "./gltf.mjs";
 import { BONES, syntheticHumanoid, writeModelFolder } from "./testing/synthetic.mjs";
 import { writePmx } from "./testing/writer.mjs";
@@ -193,4 +194,99 @@ test("names the VRM after the file when the PMX has no name", async () => {
   parts.model.nameEn = " ";
   assert.equal((await convert(parts, { fallbackName: "file-stem" })).json.extensions.VRMC_vrm.meta.name, "file-stem");
   assert.equal((await convert(parts)).json.extensions.VRMC_vrm.meta.name, "unknown");
+});
+
+test("writes one mesh per material, each holding only the morph targets that move it", async () => {
+  const { json, model } = await (async () => {
+    const parts = syntheticHumanoid();
+    const r = await convert(parts);
+    return { ...r, model: parts.model };
+  })();
+  assert.deepEqual(json.meshes.map((m) => m.name), model.materials.map((m) => m.name));
+  // The vertex morphs move only the body material's head box; the neck tilt (a bone morph,
+  // and 怒り, which holds it) also moves the hair, which hangs from the head.
+  const body = json.meshes.find((m) => m.name === "体");
+  const hair = json.meshes.find((m) => m.name === "髪");
+  assert.ok(body.extras.targetNames.includes("あ"));
+  assert.deepEqual(hair.extras.targetNames, ["首かしげ", "怒り"]);
+  assert.equal(hair.primitives[0].targets.length, 2);
+  // An expression binds its target in every mesh that has it, at that mesh's own index.
+  const nodeOf = (name) => json.nodes.findIndex((n) => n.mesh === json.meshes.findIndex((m) => m.name === name));
+  const tilt = json.extensions.VRMC_vrm.expressions.custom["首かしげ"].morphTargetBinds;
+  assert.deepEqual(
+    tilt.map((b) => [b.node, b.index]).sort((a, b) => a[0] - b[0]),
+    [
+      [nodeOf("体"), body.extras.targetNames.indexOf("首かしげ")],
+      [nodeOf("髪"), hair.extras.targetNames.indexOf("首かしげ")],
+    ].sort((a, b) => a[0] - b[0]),
+  );
+  // Each mesh has its own vertices, and every node that draws one is a first-person "auto" mesh.
+  const counts = json.meshes.map((m) => json.accessors[m.primitives[0].attributes.POSITION].count);
+  assert.ok(counts.every((c) => c < model.vertexCount));
+  const meshNodes = json.nodes.flatMap((n, i) => (n.mesh !== undefined ? [i] : []));
+  assert.deepEqual(json.extensions.VRMC_vrm.firstPerson.meshAnnotations.map((a) => a.node), meshNodes);
+  assert.ok(meshNodes.every((i) => json.nodes[i].skin === 0));
+});
+
+test("a sleeve chain that one-link IKs turn to follow the arm hangs from the arm and straightens with it", async () => {
+  const { json, report } = await convert(syntheticHumanoid({ sleeves: true }));
+  const index = (name) => json.nodes.findIndex((n) => n.name === name);
+  const parent = new Array(json.nodes.length).fill(-1);
+  json.nodes.forEach((node, i) => (node.children ?? []).forEach((c) => (parent[c] = i)));
+  const world = (node) => {
+    const t = [0, 0, 0];
+    for (let n = node; n >= 0; n = parent[n]) json.nodes[n].translation.forEach((v, k) => (t[k] += v));
+    return t;
+  };
+  for (const [p, arm, elbow, wrist] of [
+    ["左", BONES.leftArm, BONES.leftElbow, BONES.leftWrist],
+    ["右", BONES.rightArm, BONES.rightElbow, BONES.rightWrist],
+  ]) {
+    assert.equal(parent[index(`${p}腕袖`)], arm);
+    assert.equal(parent[index(`${p}ひじ袖`)], elbow);
+    assert.equal(parent[index(`${p}手首袖`)], wrist);
+    // Moved before the T-pose bake: the cuff is where the straightened wrist is.
+    const [cuff, hand] = [world(index(`${p}手首袖`)), world(wrist)];
+    assert.ok(Math.hypot(cuff[0] - hand[0], cuff[1] - hand[1], cuff[2] - hand[2]) < 1e-5, `${cuff} vs ${hand}`);
+    assert.equal(parent[index(`${p}飾り`)], p === "左" ? BONES.leftShoulder : BONES.rightShoulder, "an IK link on no arm joint stays");
+  }
+  assert.ok(report.notes.some((n) => /^Bones that MMD turns with an IK to follow another .* \(6\): '左腕袖'/.test(n)), report.notes.join("\n"));
+});
+
+test("a toe IK riding on the leg-IK handle moves nothing: the handle is not on the body", async () => {
+  const parts = syntheticHumanoid({ sleeves: true });
+  // Hang the handle from the lower body, so only its being an IK handle keeps it off the body.
+  parts.model.bones[BONES.leftLegIk].parent = BONES.lowerBody;
+  // MMD's つま先ＩＫ: one link, the FK ankle, under 足ＩＫ, which sits on the ankle joint.
+  parts.model.bones.push({
+    ...parts.model.bones[BONES.leftLegIk],
+    name: "左つま先ＩＫ",
+    nameEn: "",
+    parent: BONES.leftLegIk,
+    ik: { target: BONES.leftToe, loops: 3, limitAngle: 4, links: [{ bone: BONES.leftAnkle, hasLimits: false, min: [0, 0, 0], max: [0, 0, 0] }] },
+  });
+  const { json } = await convert(parts);
+  const parent = new Array(json.nodes.length).fill(-1);
+  json.nodes.forEach((node, i) => (node.children ?? []).forEach((c) => (parent[c] = i)));
+  assert.equal(parent[BONES.leftAnkle], BONES.leftKnee);
+});
+
+test("no bone follows an IK onto the plain leg chain beside the D-bones, or onto a physics bone", async () => {
+  const parts = syntheticHumanoid();
+  const { bones } = parts.model;
+  const add = (bone) => bones.push({ ...bones[BONES.head], nameEn: "", ik: null, inheritParent: -1, inheritWeight: 0, ...bone }) - 1;
+  // A knee pad on the knee joint, its IK riding on the plain 左ひざ (which never moves in a VRM).
+  const pad = add({ name: "左膝当て", position: [...bones[BONES.leftKnee].position], parent: BONES.leftLegD });
+  const padTip = add({ name: "左膝当て先", position: [0.9, 5.5, -1], parent: pad });
+  add({ name: "左膝当てIK", position: [0.9, 5.5, -1], parent: BONES.leftKnee, flags: bones[BONES.head].flags | BONE_FLAGS.ik, ik: { target: padTip, loops: 1, limitAngle: 1, links: [{ bone: pad, hasLimits: false, min: [0, 0, 0], max: [0, 0, 0] }] } });
+  // A hair ornament on 髪2's joint, its IK riding on 髪2, which physics moves.
+  const ornament = add({ name: "髪飾り", position: [...bones[BONES.hair2].position], parent: BONES.head });
+  const ornamentTip = add({ name: "髪飾り先", position: [0, 15, 1.6], parent: ornament });
+  add({ name: "髪飾りIK", position: [0, 15, 1.6], parent: BONES.hair2, flags: bones[BONES.head].flags | BONE_FLAGS.ik, ik: { target: ornamentTip, loops: 1, limitAngle: 1, links: [{ bone: ornament, hasLimits: false, min: [0, 0, 0], max: [0, 0, 0] }] } });
+  const { json, report } = await convert(parts);
+  const parent = new Array(json.nodes.length).fill(-1);
+  json.nodes.forEach((node, i) => (node.children ?? []).forEach((c) => (parent[c] = i)));
+  assert.equal(parent[pad], BONES.leftLegD);
+  assert.equal(parent[ornament], BONES.head);
+  assert.ok(!report.notes.some((n) => /^Bones that MMD turns with an IK/.test(n)));
 });

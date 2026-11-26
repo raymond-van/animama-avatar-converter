@@ -1,11 +1,12 @@
 import { REQUIRED_BONES, humanBoneOrder, mapHumanoid } from "./humanoid.mjs";
 import { ConversionError, MARKER_EXTENSION, createContext, drop, toGltf } from "./context.mjs";
 import { angleDegrees, fromTo, normalize, quatMultiply, quatNormalize, rotate, sub } from "./math.mjs";
-import { buildMaterials } from "./materials.mjs";
+import { buildMaterials, edgelessVariant } from "./materials.mjs";
 import { buildExpressions } from "./expressions.mjs";
 import { buildMorphTargets, countDropped, planMorphs } from "./morphs.mjs";
 import { buildLookAt, planLookAt } from "./lookat.mjs";
 import { buildSprings, setupBodies } from "./physics.mjs";
+import { followIkChains } from "./rig.mjs";
 import { readPmx } from "./reader.mjs";
 import { uniqueName } from "./names.mjs";
 import { loadTextures } from "./textures.mjs";
@@ -61,6 +62,8 @@ export function convertPmx(bytes, options) {
       { report: ctx.report },
     );
   checkFacing(ctx);
+  // Before the bake, so bones moved to follow the arms straighten with them.
+  followIkChains(ctx);
   bakeRestPose(ctx);
   placeHips(ctx);
   ground(ctx);
@@ -74,17 +77,16 @@ export function convertPmx(bytes, options) {
   const targets = buildMorphTargets(ctx, plan);
   buildLookAt(ctx, lookAt, targets);
   countDropped(ctx, plan);
-  const meshNode = ctx.boneCount + ctx.extraNodes.length;
-  buildMesh(ctx, materials, targets);
-  buildExpressions(ctx, { plan, targets, materials, meshNode });
-  buildNodes(ctx, meshNode);
+  const meshes = buildMeshes(ctx, materials, targets, ctx.boneCount + ctx.extraNodes.length);
+  buildExpressions(ctx, { plan, targets, materials, meshes });
+  buildNodes(ctx, meshes);
   for (const texture of ctx.textures)
     if (texture.problem && ctx.usedTextures.has(texture)) ctx.report.missingTextures.push({ stored: texture.stored, problem: texture.problem });
 
   const extensionsUsed = ["VRMC_vrm", "VRMC_materials_mtoon", MARKER_EXTENSION];
   /** @type {Record<string, unknown>} */
   const extensions = {
-    VRMC_vrm: buildVrm(ctx, { meshNode, materials, targets }),
+    VRMC_vrm: buildVrm(ctx, { meshes }),
     [MARKER_EXTENSION]: { source: "pmx", converter: options.converterVersion },
   };
   if (ctx.springBone) {
@@ -93,7 +95,7 @@ export function convertPmx(bytes, options) {
   }
   const sceneNodes = [];
   for (let i = 0; i < ctx.boneCount; i++) if (ctx.parent[i] < 0) sceneNodes.push(i);
-  sceneNodes.push(meshNode);
+  sceneNodes.push(...meshes.map((m) => m.node));
   const glb = ctx.builder.toGlb({
     asset: { version: "2.0", generator: `animama-avatar-converter ${options.converterVersion}` },
     scene: 0,
@@ -363,66 +365,208 @@ function ground(ctx) {
 // ─── Mesh and nodes ──────────────────────────────────────────────────────────
 
 /**
- * @param {Context} ctx
- * @param {{gltfIndex: number}[]} materials glTF material per PMX material.
- * @param {import("./morphs.mjs").MorphTarget[]} targets
+ * @typedef {object} MeshNode
+ * @property {number} node The mesh's node.
+ * @property {number} mesh
+ * @property {string} name The material's name (or "Transparent"), made unique.
+ * @property {Map<number, number>} targets Morph target (index into `targets`) to this mesh's own index.
  */
-function buildMesh(ctx, materials, targets) {
+
+/** What a viewer may expand morph targets to (Animama refuses a file above it). */
+export const MORPH_EXPANSION_LIMIT = 100 * 1024 * 1024;
+
+/**
+ * One mesh per opaque PMX material, holding only the vertices its faces use
+ * and only the morph targets that move them: a glTF reader expands each
+ * sparse target to its mesh's whole vertex count, so one mesh for the model
+ * would multiply every target by every vertex (Animama caps that expansion at
+ * 100 MB). Blended materials that tie on render order (MToon's queue offset
+ * stops at 9, and materials hidden at rest share one) share a mesh, in PMX
+ * order: a viewer sorts tied meshes by depth, but draws the primitives of one
+ * mesh in order, as MMD draws its materials.
+ *
+ * An outlined material puts faces whose vertices MMD draws without an edge
+ * (per-vertex edge scale under a half) in a second primitive with the
+ * material's outline-free copy, except on the head: Animama finds the face
+ * skin as one primitive, so a face material keeps its outline throughout.
+ * @param {Context} ctx
+ * @param {import("./materials.mjs").MaterialInfo[]} materials glTF material per PMX material.
+ * @param {import("./morphs.mjs").MorphTarget[]} targets
+ * @param {number} firstNode The node index the first mesh's node gets.
+ * @returns {MeshNode[]}
+ */
+function buildMeshes(ctx, materials, targets, firstNode) {
   const { builder: g, model } = ctx;
-  const vertexCount = model.vertexCount;
-  const position = g.addFloats(ctx.positions, "VEC3", true);
-  const normal = g.addFloats(ctx.normals, "VEC3");
-  const uv = g.addFloats(ctx.uvs, "VEC2");
-  const joints = g.addJoints(ctx.joints);
-  const weights = g.addFloats(ctx.weights, "VEC4");
-  const targetAccessors = targets.map((t) => g.addSparseVec3(vertexCount, t.vertices, t.offsets));
-  const targetNames = targets.map((t) => t.name);
-  const primitives = [];
+  /** Each PMX vertex's index in the mesh being built, -1 outside it. */
+  const local = new Int32Array(model.vertexCount).fill(-1);
+  const usedNames = new Set([...ctx.nodeNames, ...ctx.extraNodes.map((extra) => extra.name)]);
+  const onHead = headBones(ctx);
+
+  // Each material's faces (glTF winding), split by outline.
+  /** @type {{material: number, faces: number[], edgeless: number[]}[]} */
+  const parts = [];
   let offset = 0;
+  let widthLost = 0;
   model.materials.forEach((material, m) => {
     const start = offset;
     offset += material.indexCount;
-    const indices = [];
+    const faces = [];
+    const edgeless = [];
+    /** @type {number[]} */
+    const all = [];
     for (let f = start; f + 2 < start + material.indexCount; f += 3) {
       const a = model.indices[f];
       const b = model.indices[f + 1];
       const c = model.indices[f + 2];
       if (a === b || b === c || a === c) continue; // degenerate
       // MMD front faces are clockwise; mirroring Z keeps the image, so glTF (counter-clockwise) needs them reversed.
-      indices.push(a, c, b);
+      all.push(a, c, b);
     }
-    if (indices.length === 0) return;
-    /** @type {Record<string, unknown>} */
-    const primitive = {
-      attributes: { POSITION: position, NORMAL: normal, TEXCOORD_0: uv, JOINTS_0: joints, WEIGHTS_0: weights },
-      indices: g.addIndices(Uint32Array.from(indices), vertexCount),
-      material: materials[m].gltfIndex,
-      mode: 4,
-    };
-    if (targetAccessors.length > 0) {
-      primitive.targets = targetAccessors.map((accessor) => ({ POSITION: accessor }));
-      primitive.extras = { targetNames };
+    const splits = materials[m].outlined && !mostlyOn(ctx, all, onHead);
+    for (let i = 0; i < all.length; i += 3) {
+      const face = [all[i], all[i + 1], all[i + 2]];
+      const noEdge = splits && face.every((v) => model.edgeScales[v] < 0.5);
+      (noEdge ? edgeless : faces).push(...face);
     }
-    primitives.push(primitive);
+    // Outlined vertices whose own width (a fraction, or none where kept outlined) is lost.
+    if (materials[m].outlined) for (const v of new Set(faces)) if (Math.abs(model.edgeScales[v] - 1) > 0.01) widthLost += 1;
+    if (faces.length + edgeless.length > 0) parts.push({ material: m, faces, edgeless });
   });
-  if (primitives.length === 0) throw new ConversionError("The model has no faces to draw.");
-  /** @type {Record<string, unknown>} */
-  const mesh = { name: "Body", primitives };
-  if (targets.length > 0) {
-    mesh.weights = targets.map(() => 0);
-    mesh.extras = { targetNames };
+  drop(ctx, "per-vertex outline width (vertices drawn at full width)", widthLost);
+  if (parts.length === 0) throw new ConversionError("The model has no faces to draw.");
+
+  // A mesh per material, except blended materials that tie on render order: those share one,
+  // at the first one's place.
+  /** @type {typeof parts[]} */
+  const groups = [];
+  /** @type {Map<string, typeof parts>} */
+  const ties = new Map();
+  for (const part of parts) {
+    const info = materials[part.material];
+    const mtoon = g.materials[info.gltfIndex].extensions.VRMC_materials_mtoon;
+    if (info.alphaMode !== "BLEND") {
+      groups.push([part]);
+      continue;
+    }
+    const key = `${mtoon.transparentWithZWrite}:${mtoon.renderQueueOffsetNumber}`;
+    const group = ties.get(key);
+    if (group) group.push(part);
+    else {
+      ties.set(key, [part]);
+      groups.push(/** @type {typeof parts} */ (ties.get(key)));
+    }
   }
-  g.meshes.push(mesh);
-  ctx.report.morphTargets = targets.length;
+
+  /** @type {MeshNode[]} */
+  const meshes = [];
+  let expanded = 0;
+  for (const group of groups) {
+    // In PMX order, so a target's sorted vertices stay sorted here.
+    const vertices = Uint32Array.from(new Set(group.flatMap((part) => [...part.faces, ...part.edgeless]))).sort();
+    vertices.forEach((v, i) => (local[v] = i));
+    const pick = (/** @type {Float32Array | Uint16Array} */ data, size) => {
+      const out = new /** @type {any} */ (data.constructor)(vertices.length * size);
+      vertices.forEach((v, i) => out.set(data.subarray(v * size, v * size + size), i * size));
+      return out;
+    };
+    /** @type {Record<string, unknown>} */
+    const attributes = {
+      POSITION: g.addFloats(pick(ctx.positions, 3), "VEC3", true),
+      NORMAL: g.addFloats(pick(ctx.normals, 3), "VEC3"),
+      TEXCOORD_0: g.addFloats(pick(ctx.uvs, 2), "VEC2"),
+      JOINTS_0: g.addJoints(pick(ctx.joints, 4)),
+      WEIGHTS_0: g.addFloats(pick(ctx.weights, 4), "VEC4"),
+    };
+    /** @type {Record<string, unknown>[]} */
+    const primitives = [];
+    for (const part of group)
+      for (const [list, outlineFree] of /** @type {const} */ ([
+        [part.faces, false],
+        [part.edgeless, true],
+      ])) {
+        if (list.length === 0) continue;
+        primitives.push({
+          attributes,
+          indices: g.addIndices(Uint32Array.from(list, (v) => local[v]), vertices.length),
+          material: outlineFree ? edgelessVariant(ctx, materials[part.material]) : materials[part.material].gltfIndex,
+          mode: 4,
+        });
+      }
+    /** @type {Map<number, number>} */
+    const own = new Map();
+    const accessors = [];
+    const names = [];
+    targets.forEach((target, t) => {
+      const keep = [];
+      for (let i = 0; i < target.vertices.length; i++) if (local[target.vertices[i]] >= 0) keep.push(i);
+      if (keep.length === 0) return;
+      const offsets = new Float32Array(keep.length * 3);
+      keep.forEach((i, k) => offsets.set(target.offsets.subarray(i * 3, i * 3 + 3), k * 3));
+      own.set(t, accessors.length);
+      accessors.push(g.addSparseVec3(vertices.length, Uint32Array.from(keep, (i) => local[target.vertices[i]]), offsets));
+      names.push(target.name);
+    });
+    for (const v of vertices) local[v] = -1;
+    expanded += vertices.length * 12 * accessors.length;
+    const first = model.materials[group[0].material];
+    const name = uniqueName(group.length > 1 ? "Transparent" : first.name || first.nameEn || `material${group[0].material}`, usedNames);
+    /** @type {Record<string, unknown>} */
+    const mesh = { name, primitives };
+    if (accessors.length > 0) {
+      for (const primitive of primitives) {
+        primitive.targets = accessors.map((accessor) => ({ POSITION: accessor }));
+        primitive.extras = { targetNames: names };
+      }
+      mesh.weights = accessors.map(() => 0);
+      mesh.extras = { targetNames: names };
+    }
+    g.meshes.push(mesh);
+    meshes.push({ node: firstNode + meshes.length, mesh: g.meshes.length - 1, name, targets: own });
+  }
+  // A target on vertices no face draws is in no mesh: it shows nothing.
+  const shown = targets.filter((_, t) => meshes.some((mesh) => mesh.targets.has(t))).length;
+  drop(ctx, "morph targets that move only vertices no face uses", targets.length - shown);
+  ctx.report.morphTargets = shown;
+  if (expanded > (ctx.options.morphExpansionLimit ?? MORPH_EXPANSION_LIMIT))
+    ctx.report.warnings.push(
+      `The morph targets expand to ${Math.round(expanded / 1024 / 1024)} MB in a viewer; Animama accepts at most 100 MB. A material with fewer vertices or fewer face morphs would fit.`,
+    );
+  return meshes;
+}
+
+/** The head bone and every bone below it. */
+function headBones(ctx) {
+  const head = ctx.human.get("head");
+  const out = new Set();
+  if (head === undefined) return out;
+  const queue = [head];
+  for (let i = 0; i < queue.length; i++) {
+    out.add(queue[i]);
+    queue.push(...ctx.children[queue[i]]);
+  }
+  return out;
+}
+
+/** Whether most of these vertices hang mainly from the given bones. */
+function mostlyOn(ctx, vertices, bones) {
+  const unique = new Set(vertices);
+  if (unique.size === 0 || bones.size === 0) return false;
+  let on = 0;
+  for (const v of unique) {
+    let best = 0;
+    for (let s = 1; s < 4; s++) if (ctx.weights[v * 4 + s] > ctx.weights[v * 4 + best]) best = s;
+    if (bones.has(ctx.joints[v * 4 + best])) on += 1;
+  }
+  return on * 2 > unique.size;
 }
 
 /**
  * Bone nodes (translation only), extra nodes such as spring tails, the mesh
- * node and the skin.
+ * nodes and the skin they share.
  * @param {Context} ctx
- * @param {number} meshNode
+ * @param {MeshNode[]} meshes
  */
-function buildNodes(ctx, meshNode) {
+function buildNodes(ctx, meshes) {
   const { builder: g } = ctx;
   for (let i = 0; i < ctx.boneCount; i++) {
     const parent = ctx.parent[i];
@@ -438,7 +582,7 @@ function buildNodes(ctx, meshNode) {
   }
   for (const extra of ctx.extraNodes)
     g.nodes.push({ name: extra.name, translation: sub(extra.position, ctx.bonePos[extra.parent]).map(clean) });
-  g.nodes.push({ name: "Body", mesh: 0, skin: 0 });
+  for (const { name, mesh } of meshes) g.nodes.push({ name, mesh, skin: 0 });
   const inverseBind = new Float32Array(ctx.boneCount * 16);
   for (let i = 0; i < ctx.boneCount; i++) {
     const o = i * 16;

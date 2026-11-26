@@ -194,10 +194,10 @@ export function composeFace(morphs, warn) {
     /** @type {Bind[]} */
     const whole = [];
     for (const region of REGIONS) {
-      const bind = chooseRegion(mood, region, morphs, byKey);
-      if (!bind) continue;
-      parts[`Fcl_${region}_${mood}`] = [bind];
-      whole.push(bind);
+      const binds = chooseRegion(mood, region, morphs, byKey);
+      if (binds.length === 0) continue;
+      parts[`Fcl_${region}_${mood}`] = binds;
+      whole.push(...binds);
     }
     // A model with VRoid's own whole-face morph (a PMX made from a VRoid model) keeps it,
     // as VRoid's preset does, rather than a sum of the parts that may differ from it.
@@ -212,29 +212,102 @@ export function composeFace(morphs, warn) {
 }
 
 /**
- * The morph that plays one mood in one region: VRoid's own part of that name,
+ * The morphs that play one mood in one region: VRoid's own part of that name,
  * a standard MMD name, then a morph whose name states that mood in that
- * region (never one that moves the whole face), then the fallbacks.
+ * region (never one that moves the whole face) with its mirror partner when
+ * its name has a side, then the fallbacks, then the region's ARKit mix when
+ * the model has all its shapes.
  * @param {Mood} mood
  * @param {Region} region
  * @param {FaceMorph[]} morphs
  * @param {Map<string, FaceMorph>} byKey
- * @returns {Bind | null}
+ * @returns {Bind[]}
  */
 function chooseRegion(mood, region, morphs, byKey) {
   const vroid = byKey.get(normalizeName(`Fcl_${region}_${mood}`));
-  if (vroid) return { target: vroid.target, weight: 1 };
+  if (vroid) return [{ target: vroid.target, weight: 1 }];
   const [standard, ...fallbacks] = MOOD_CHOICES[mood][region];
   const named = byKey.get(normalizeName(standard.name));
-  if (named) return { target: named.target, weight: standard.weight ?? 1 };
-  const stated = morphs.find((morph) => (morph.region ?? regionOfName(morph.key)) === region && moodOf(morph.key) === mood);
-  if (stated) return { target: stated.target, weight: 1 };
+  if (named) return [{ target: named.target, weight: standard.weight ?? 1 }];
+  // ARKit's shapes are building blocks, not moods (mouthFunnel is no "fun"): they come in as the mix below.
+  const stated = morphs.find((morph) => !ARKIT_SHAPES.has(morph.key) && (morph.region ?? regionOfName(morph.key)) === region && moodOf(morph.key) === mood);
+  if (stated) {
+    // A one-sided morph (eye_sad_L, smileLeft, 左笑い) plays with its other side.
+    const partner = mirrorName(stated.name);
+    const other = partner === null ? undefined : morphs.find((morph) => morph.name === partner);
+    return mergeBinds([{ target: stated.target, weight: 1 }, ...(other ? [{ target: other.target, weight: 1 }] : [])]);
+  }
   for (const choice of fallbacks) {
     const morph = byKey.get(normalizeName(choice.name));
-    if (morph) return { target: morph.target, weight: choice.weight ?? 1 };
+    if (morph) return [{ target: morph.target, weight: choice.weight ?? 1 }];
   }
-  return null;
+  const mix = Object.entries(ARKIT_MOODS[mood][region]).map(([shape, weight]) => ({ morph: byKey.get(normalizeName(shape)), weight }));
+  if (mix.every(({ morph }) => morph)) return mix.map(({ morph, weight }) => ({ target: /** @type {FaceMorph} */ (morph).target, weight }));
+  return [];
 }
+
+/** The name of a morph's other side (eye_sad_L ↔ eye_sad_R, smileLeft ↔ smileRight, 左笑い ↔ 右笑い), or null. */
+export function mirrorName(name) {
+  const swap = { L: "R", R: "L", l: "r", r: "l", Left: "Right", Right: "Left", left: "right", right: "left", LEFT: "RIGHT", RIGHT: "LEFT", 左: "右", 右: "左" };
+  // A side after a separator (eye_L, brow.right) or a capital after a lower-case letter (smileLeft).
+  let m = /^(.*[_. -])([LlRr]|Left|Right|left|right|LEFT|RIGHT)$/.exec(name) ?? /^(.*[a-z0-9])(Left|Right)$/.exec(name);
+  if (m) return m[1] + swap[/** @type {keyof typeof swap} */ (m[2])];
+  m = /^([左右])(.+)$/.exec(name);
+  if (m) return swap[/** @type {"左" | "右"} */ (m[1])] + m[2];
+  m = /^(.+)([左右])$/.exec(name);
+  return m ? m[1] + swap[/** @type {"左" | "右"} */ (m[2])] : null;
+}
+
+/** ARKit's 52 face shapes, by normalized name. */
+const ARKIT_SHAPES = new Set(
+  [
+    "browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight", "cheekPuff", "cheekSquintLeft",
+    "cheekSquintRight", "eyeBlinkLeft", "eyeBlinkRight", "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft",
+    "eyeLookInRight", "eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookUpRight", "eyeSquintLeft",
+    "eyeSquintRight", "eyeWideLeft", "eyeWideRight", "jawForward", "jawLeft", "jawOpen", "jawRight", "mouthClose",
+    "mouthDimpleLeft", "mouthDimpleRight", "mouthFrownLeft", "mouthFrownRight", "mouthFunnel", "mouthLeft",
+    "mouthLowerDownLeft", "mouthLowerDownRight", "mouthPressLeft", "mouthPressRight", "mouthPucker", "mouthRight",
+    "mouthRollLower", "mouthRollUpper", "mouthShrugLower", "mouthShrugUpper", "mouthSmileLeft", "mouthSmileRight",
+    "mouthStretchLeft", "mouthStretchRight", "mouthUpperUpLeft", "mouthUpperUpRight", "noseSneerLeft", "noseSneerRight",
+    "tongueOut",
+  ].map(normalizeName),
+);
+
+/**
+ * Each mood region as a mix of ARKit's 52 face shapes, for models that carry
+ * them (perfect-sync models) and lack a named morph for the region. The same
+ * mixes Animama plays for ARKit Avatars without mood parts
+ * (`arkitFaceCompositions.json`), so a converted model looks as Animama would
+ * have made it.
+ * @type {Record<Mood, Record<Region, Record<string, number>>>}
+ */
+const ARKIT_MOODS = {
+  Joy: {
+    BRW: { browInnerUp: 0.2, browOuterUpLeft: 0.4, browOuterUpRight: 0.4 },
+    EYE: { eyeBlinkLeft: 0.4, eyeBlinkRight: 0.4, eyeSquintLeft: 0.8, eyeSquintRight: 0.8, cheekSquintLeft: 0.8, cheekSquintRight: 0.8 },
+    MTH: { mouthSmileLeft: 1, mouthSmileRight: 1, jawOpen: 0.15 },
+  },
+  Fun: {
+    BRW: { browInnerUp: 0.2, browOuterUpLeft: 0.2, browOuterUpRight: 0.2 },
+    EYE: { eyeBlinkLeft: 0.15, eyeBlinkRight: 0.15, eyeSquintLeft: 0.5, eyeSquintRight: 0.5, cheekSquintLeft: 0.5, cheekSquintRight: 0.5 },
+    MTH: { mouthSmileLeft: 1, mouthSmileRight: 1 },
+  },
+  Sorrow: {
+    BRW: { browInnerUp: 0.9, browDownLeft: 0.15, browDownRight: 0.15 },
+    EYE: { eyeBlinkLeft: 0.2, eyeBlinkRight: 0.2, eyeSquintLeft: 0.2, eyeSquintRight: 0.2 },
+    MTH: { mouthFrownLeft: 1, mouthFrownRight: 1, mouthStretchLeft: 0.3, mouthStretchRight: 0.3, mouthShrugLower: 0.4 },
+  },
+  Angry: {
+    BRW: { browDownLeft: 0.9, browDownRight: 0.9 },
+    EYE: { eyeSquintLeft: 0.6, eyeSquintRight: 0.6 },
+    MTH: { noseSneerLeft: 0.4, noseSneerRight: 0.4, mouthPressLeft: 0.6, mouthPressRight: 0.6, mouthFrownLeft: 0.6, mouthFrownRight: 0.6 },
+  },
+  Surprised: {
+    BRW: { browInnerUp: 0.7, browOuterUpLeft: 1, browOuterUpRight: 1 },
+    EYE: { eyeWideLeft: 0.8, eyeWideRight: 0.8 },
+    MTH: { jawOpen: 0.35, mouthFunnel: 0.2 },
+  },
+};
 
 /** Binds with each target once, at its largest weight. @param {Bind[]} binds */
 export function mergeBinds(binds) {

@@ -29,6 +29,7 @@ export class ConversionError extends Error {}
  * @property {boolean} [keepPose] Keep MMD's modelled pose instead of the T-pose.
  * @property {string} [fallbackName] The VRM name when neither the options nor the PMX give one (the file's name).
  * @property {{name: string, morphs: {morph: string, weight: number}[]}[]} [expressions] Preset and part overrides (`--expression`).
+ * @property {number} [morphExpansionLimit] Bytes of expanded morph targets above which the report warns (tests lower it).
  *
  * @typedef {object} ConvertReport
  * @property {{name: string, vertices: number, faces: number, materials: number, textures: number, bones: number, heightMetres: number}} model

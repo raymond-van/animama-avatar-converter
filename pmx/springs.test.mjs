@@ -68,9 +68,11 @@ test("a skirt hits the legs, ends on new tail nodes, and its ring joint is repor
   assert.ok(json.nodes[nodeNamed(json, "スカート前2")].children.includes(tail));
   assert.ok(json.nodes[tail].translation[1] < 0, "the tail hangs below its bone");
   assert.equal(report.dropped["physics joints between neighbouring chains (VRM springs only hang)"], 1);
-  // The mesh node still follows the bones and the tail nodes.
-  assert.equal(json.nodes.at(-1).mesh, 0);
-  assert.deepEqual(json.scenes[0].nodes.at(-1), json.nodes.length - 1);
+  // The mesh nodes follow the bones and the tail nodes, and the scene holds each.
+  const meshNodes = json.nodes.flatMap((node, i) => (node.mesh !== undefined ? [i] : []));
+  assert.equal(meshNodes.length, json.meshes.length);
+  assert.ok(meshNodes.every((i) => i > tail));
+  for (const i of meshNodes) assert.ok(json.scenes[0].nodes.includes(i));
 });
 
 test("a branch starts its own spring; the deepest child continues the chain", async () => {
