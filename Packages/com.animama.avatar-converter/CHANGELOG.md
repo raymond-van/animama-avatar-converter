@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-11-26)
 
 - Convert a MikuMikuDance model (`.pmx`) to VRM 1.0 without Unity:
   `npx animama-avatar-converter model.pmx`. Adapted from pmx-to-vrm (MIT).
